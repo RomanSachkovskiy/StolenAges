@@ -1,0 +1,42 @@
+{
+  "name": "stolen-ages",
+  "version": "0.1.0",
+  "description": "Stolen-Ages — игра для браузера в разработке.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "dev": "vite --host 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint src tests",
+    "test:watch": "vitest",
+    "test:browser": "node qa/browser.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RomanSachkovskiy/StolenAges.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/RomanSachkovskiy/StolenAges/issues"
+  },
+  "homepage": "https://github.com/RomanSachkovskiy/StolenAges#readme",
+  "dependencies": {
+    "phaser": "^4.2.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.74.0",
+    "vite": "^7.3.8",
+    "vitest": "^3.2.7"
+  }
+}

@@ -1,0 +1,77 @@
+name: Check and publish
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified build
+        type: boolean
+        default: false
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck && npm test && npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish)
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - id: pages
+        uses: actions/deploy-pages@v4
+
+    outputs:
+      url: ${{ steps.pages.outputs.page_url }}
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci && npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: node qa/published.mjs
+        env:
+          PAGES_URL: ${{ needs.deploy.outputs.url }}
+      - name: Tag verified release
+        if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release Stolen Ages v0.1.0')
+        run: |
+          if git rev-parse -q --verify refs/tags/v0.1.0; then
+            test "$(git rev-list -n1 v0.1.0)" = "$GITHUB_SHA"
+          else
+            git tag v0.1.0 "$GITHUB_SHA"
+            git push origin refs/tags/v0.1.0
+          fi
