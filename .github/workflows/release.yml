@@ -66,12 +66,30 @@ jobs:
       - run: node qa/published.mjs
         env:
           PAGES_URL: ${{ needs.deploy.outputs.url }}
-      - name: Tag verified release
-        if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release Stolen Ages v0.1.0')
+      - name: Publish verified release
+        if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release Stolen Ages v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGES_URL: ${{ needs.deploy.outputs.url }}
         run: |
-          if git rev-parse -q --verify refs/tags/v0.1.0; then
-            test "$(git rev-list -n1 v0.1.0)" = "$GITHUB_SHA"
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          tag="v$version"
+          title="Stolen Ages $tag"
+          test "$(git log -1 --format=%s)" = "Release $title"
+
+          if git rev-parse -q --verify "refs/tags/$tag"; then
+            test "$(git rev-list -n1 "$tag")" = "$GITHUB_SHA"
           else
-            git tag v0.1.0 "$GITHUB_SHA"
-            git push origin refs/tags/v0.1.0
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+
+          if gh release view "$tag" --json isDraft,url > release-state.json; then
+            test "$(jq -r .isDraft release-state.json)" = false
+            jq -r .url release-state.json
+          else
+            gh release create "$tag" --verify-tag --title "$title" \
+              --generate-notes --notes "[Играть на GitHub Pages]($PAGES_URL)"
           fi
