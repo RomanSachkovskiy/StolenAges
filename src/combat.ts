@@ -6,7 +6,7 @@ import {
   type State,
   type Action,
 } from "./world";
-import { cost, develop, invalid } from "./rules";
+import { cost, develop, heritageEras, invalid } from "./rules";
 export function powers(s: State, a: Action) {
   const army = s.layers[a.e][a.i].army!,
     j = a.to!,
@@ -31,6 +31,10 @@ export function powers(s: State, a: Action) {
     (terrain[j] === "pass" ? 1 : 0) +
     2 * t.city +
     (t.city ? 2 : 0) +
+    (t.build.includes("fortifiedBridge") &&
+    heritageEras(s, a.e, j, "fortifiedBridge").length
+      ? 2
+      : 0) +
     (t.build.includes("tower") ? 2 + fort : 0) +
     (t.build.includes("wall") && !siege ? 4 + fort : 0) +
     (capitals[f] === j && s.factions[f]?.stand >= s.round ? 3 : 0) -

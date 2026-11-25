@@ -165,7 +165,7 @@ h2 {
   bottom: calc(64px + env(safe-area-inset-bottom));
   left: 12px;
   width: min(390px, 94%);
-  max-height: 38%;
+  max-height: 56%;
   overflow: auto;
   border: 1px solid #af9973;
   padding: 10px 14px;
@@ -227,15 +227,20 @@ output:not(:empty) {
 }
 @media (max-width: 700px) {
   header {
-    padding: 3px;
-    gap: 2px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "tabs menu" "round round";
+    padding: 3px 5px 5px;
+    gap: 3px;
   }
   .brand {
     display: none;
   }
   nav {
-    flex: 1;
+    grid-area: tabs;
+  }
+  header > .icon {
+    grid-area: menu;
   }
   nav button {
     padding: 2px 5px;
@@ -243,6 +248,9 @@ output:not(:empty) {
     flex: 1;
   }
   .counter {
+    grid-area: round;
+    justify-self: center;
+    margin: 0;
     font-size: 12px;
   }
   footer {
@@ -277,16 +285,6 @@ output:not(:empty) {
     max-height: 45%;
   }
 }
-#app[data-screen="game"] #world {
-  top: 56px;
-  bottom: 58px;
-}
-@media (max-width: 700px) {
-  #app[data-screen="game"] #world {
-    top: 50px;
-    bottom: 56px;
-  }
-}
 #sheet select {
   min-height: 44px;
   max-width: 100%;
@@ -310,5 +308,75 @@ output:not(:empty) {
       opacity: 1;
       transform: translateY(0);
     }
+  }
+}
+
+#app[data-era="present"] {
+  --ink: #203849;
+  --gold: #e2b999;
+}
+
+#app[data-era="future"] {
+  --ink: #142e46;
+  --gold: #a8eddc;
+  --paper: #e1f0e9;
+}
+
+#ai-playback {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: 76px;
+  width: min(520px, calc(100% - 24px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #18313b;
+  color: #fff0d2;
+  border: 1px solid #d7b972;
+  box-shadow: 0 8px 24px #14232f72;
+  border-radius: 5px;
+}
+
+#ai-playback button {
+  flex-shrink: 0;
+}
+
+.echo-card {
+  border-left: 3px solid #538277;
+  background: #3b81721a;
+  padding: 7px 10px;
+  margin: 9px 0;
+}
+
+.echo-card summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.echo-card p,
+.order small {
+  font-size: 14px;
+}
+
+.order-reason {
+  color: #70342a;
+}
+
+.order-echo {
+  color: #20574d;
+}
+
+@media (max-width: 700px) {
+  #ai-playback {
+    top: 61px;
+    font-size: 14px;
+  }
+
+  #ai-playback button {
+    padding: 4px 7px;
   }
 }

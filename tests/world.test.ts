@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
-import { neighbors, newGame } from "../src/world";
+import { maxRounds, neighbors, newGame } from "../src/world";
 it("creates independent layers with symmetric routes and equal starts", () => {
   const s = newGame(12345);
-  expect(s.layers.flat()).toHaveLength(54);
+  expect(s.layers.flat()).toHaveLength(36);
   for (const layer of s.layers)
     for (const f of [0, 1, 2])
       expect(layer.filter((r) => r.owner === f)).toHaveLength(2);
@@ -27,10 +27,7 @@ import { execute } from "../src/combat";
 it("charges shared AP and rejects a fourth action atomically", () => {
   const s = newGame(9);
   for (const e of [0, 1, 2])
-    expect(execute(s, { kind: "outpost", e, i: 1 })).toBe(
-      e === 2 ? "shortage" : "",
-    );
-  expect(execute(s, { kind: "farm", e: 2, i: 0 })).toBe("");
+    expect(execute(s, { kind: "outpost", e, i: 1 })).toBe("");
   const before = structuredClone(s);
   expect(execute(s, { kind: "train", e: 0, i: 0 })).toBe("noAP");
   expect(s).toEqual(before);
@@ -50,11 +47,11 @@ import { ai, endTurn } from "../src/round";
 it("finishes 100 seeded simulations within the round limit", () => {
   for (let seed = 0; seed < 100; seed++) {
     const s = newGame(seed);
-    for (let turn = 0; turn < 20 && s.winner === null; turn++) {
+    for (let turn = 0; turn < maxRounds && s.winner === null; turn++) {
       ai(s);
       endTurn(s);
     }
     expect(s.winner).not.toBeNull();
-    expect(s.round).toBeLessThanOrEqual(20);
+    expect(s.round).toBeLessThanOrEqual(maxRounds);
   }
 }, 120000);

@@ -1,109 +1,50 @@
 import Phaser from "phaser";
-import { terrain, type State } from "./world";
+import {
+  coast,
+  contains,
+  regions,
+  worldWidth as W,
+  worldHeight as H,
+  type Point,
+} from "./geography";
+import {
+  banners,
+  building,
+  flag,
+  mountain,
+  noise,
+  palettes,
+  path,
+  settlement,
+  tree,
+  unit,
+} from "./map-art";
+import { echo, heritage, heritageEras } from "./rules";
+import { neighbors, type Entry, type State } from "./world";
 
-const W = 2800,
-  H = 1900;
-function hash(i: number) {
-  const n = Math.sin(i * 127.1 + 311.7) * 43758.5453;
-  return n - Math.floor(n);
-}
-function settlement(
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  level: number,
-  era: number,
-  ink: number,
-) {
-  const walls = [0xd4b68c, 0xd6cbb0, 0xb8cdcc],
-    roofs = [0x9b613e, 0x885044, 0x507b83];
-  g.fillStyle(0x544e37, 0.22).fillEllipse(x + 5, y + 7, 90 + 15 * level, 26);
-  for (let n = 0; n < level + 2; n++) {
-    const dx = x + (n - (level + 1) / 2) * 22,
-      dy = y + (n % 2) * 8,
-      h = 24 + (n % 3) * 6 + (level === 4 && n === 2 ? 35 : 0);
-    g.fillStyle(walls[era]).fillRect(dx - 12, dy - h, 24, h);
-    g.fillStyle(0x3d413a, 0.3).fillTriangle(
-      dx + 3,
-      dy - h,
-      dx + 12,
-      dy - h,
-      dx + 12,
-      dy,
-    );
-    g.fillStyle(roofs[era]).fillTriangle(
-      dx - 17,
-      dy - h,
-      dx + 2,
-      dy - h - 15 - era * 3,
-      dx + 17,
-      dy - h,
-    );
-    g.fillStyle(0x4c4c3e)
-      .fillRect(dx - 3, dy - 12, 6, 12)
-      .fillRect(dx - 8, dy - h + 4, 4, 5);
-  }
-  if (level >= 3)
-    g.lineStyle(5, 0x716b54).lineBetween(x - 45, y + 6, x + 45, y + 6);
-  g.lineStyle(3, 0x514b37).lineBetween(x + 10, y - 36, x + 10, y - 76);
-  g.fillStyle(ink).fillTriangle(x + 10, y - 76, x + 33, y - 70, x + 10, y - 62);
-}
-function pine(
-  g: Phaser.GameObjects.Graphics,
-  x: number,
-  y: number,
-  size: number,
-) {
-  g.fillStyle(0x48533b, 0.18).fillEllipse(
-    x + 3,
-    y + 1,
-    size * 1.1,
-    size * 0.29,
-  );
-  g.fillStyle(0x766347).fillRect(x - 2, y - size * 0.4, 4, size * 0.4);
-  g.fillStyle(0x617459).fillTriangle(
-    x - size * 0.42,
-    y - 4,
-    x,
-    y - size,
-    x + size * 0.42,
-    y - 4,
-  );
-  g.fillStyle(0x81916d).fillTriangle(
-    x - size * 0.42,
-    y - 4,
-    x,
-    y - size,
-    x - 3,
-    y - 4,
-  );
-}
-const inks = [0x285d75, 0xa34c3e, 0x705178, 0x65706a];
-const washes = [
-  [0xbac8ad, 0xdec4a0, 0xc8b9be, 0xd8d2ac],
-  [0xb6c6c6, 0xd4b7a3, 0xc5b5c7, 0xcdcbbb],
-  [0x93b9b8, 0xc0a59b, 0xad9ebc, 0xaab9ae],
+const river: Point[] = [
+  [119, 578],
+  [226, 582],
+  [332, 562],
+  [441, 576],
+  [521, 564],
+  [608, 542],
+  [675, 535],
+  [746, 523],
+  [843, 489],
+  [949, 443],
+  [1040, 443],
+  [1110, 445],
+  [1256, 488],
+  [1351, 490],
+  [1450, 505],
+  [1548, 506],
+  [1666, 480],
 ];
-function corner(c: number, r: number) {
-  return new Phaser.Math.Vector2(
-    (c * W) / 6 + (c > 0 && c < 6 ? 65 * Math.sin(c * 13 + r * 7) : 0),
-    (r * H) / 3 + (r > 0 && r < 3 ? 85 * Math.cos(c * 6.7 + r * 3) : 0),
-  );
-}
-const polygons = terrain.map((_, i) => {
-  const c = i % 6,
-    r = Math.floor(i / 6);
-  return [
-    corner(c, r),
-    corner(c + 1, r),
-    corner(c + 1, r + 1),
-    corner(c, r + 1),
-  ];
-});
-const centers = polygons.map((p) => ({
-  x: p.reduce((a, b) => a + b.x, 0) / 4,
-  y: p.reduce((a, b) => a + b.y, 0) / 4,
-}));
+const markers = ["◆", "▲", "●", "◇"];
+
+export const orderDuration = 550;
+
 interface MapView {
   scale: (z: number) => void;
   state: State;
@@ -114,6 +55,11 @@ interface MapView {
 }
 export class Atlas extends Phaser.Scene {
   private graph!: Phaser.GameObjects.Graphics;
+  private motion!: Phaser.GameObjects.Graphics;
+  private animation?: { entry: Entry; started: number };
+  private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  private ambient: { x: number; y: number; tint?: number; water?: boolean }[] =
+    [];
   private labels: Phaser.GameObjects.Text[] = [];
   private drag = new Map<number, { x: number; y: number }>();
   private start = { x: 0, y: 0 };
@@ -124,6 +70,7 @@ export class Atlas extends Phaser.Scene {
   }
   create() {
     this.graph = this.add.graphics();
+    this.motion = this.add.graphics().setDepth(1);
     this.refresh();
     this.fit(true);
     this.scale.on("resize", () => this.fit(false));
@@ -182,41 +129,68 @@ export class Atlas extends Phaser.Scene {
       if (this.shifted) return;
       const p = pos(ev),
         w = this.cameras.main.getWorldPoint(p.x, p.y);
-      const i = polygons.findIndex((poly) =>
-        Phaser.Geom.Polygon.Contains(new Phaser.Geom.Polygon(poly), w.x, w.y),
+      const i = regions.findIndex((region) =>
+        contains(region.boundary, w.x, w.y),
       );
       if (i >= 0) this.view.select(i);
     };
   }
   private fit(first: boolean) {
     const cam = this.cameras.main;
+    const atOverview = cam.zoom <= this.min() + 0.01;
     this.size = { w: cam.width, h: cam.height };
-    if (first) {
-      this.home();
+    if (first || atOverview) {
+      this.overview();
       return;
     }
     this.zoom(1);
-    this.focus(this.view.selected);
+    if (this.view.selected >= 0) this.focus(this.view.selected);
   }
   focus(i: number) {
-    const c = centers[i];
-    this.cameras.main.centerOn(c.x, c.y);
+    this.cameras.main.centerOn(...regions[i].center);
+  }
+  overview() {
+    if (!this.graph) return;
+    const cam = this.cameras.main;
+    cam.setZoom(this.min());
+    this.zoom(1);
+    cam.centerOn(W / 2, H / 2);
   }
   home() {
     if (!this.graph) return;
-    const cam = this.cameras.main;
-    cam.setBounds(0, 0, W, H);
-    cam.setZoom(
-      Math.max(
-        this.min(),
-        Math.max(0.65, Math.min(cam.width / 1250, cam.height / 850)),
-      ),
+    this.zoom(
+      Math.max(this.min(), Math.min(1.35, this.size.w / 510)) /
+        this.cameras.main.zoom,
     );
-    this.zoom(1);
     this.focus(0);
   }
+  cameraPosition() {
+    const cam = this.cameras.main;
+    return { x: cam.scrollX, y: cam.scrollY, zoom: cam.zoom };
+  }
+  restoreCamera(position: ReturnType<Atlas["cameraPosition"]>) {
+    const cam = this.cameras.main;
+    this.zoom(position.zoom / cam.zoom);
+    cam.setScroll(position.x, position.y);
+  }
+  showOrder(entry?: Entry) {
+    this.animation = entry ? { entry, started: performance.now() } : undefined;
+    this.refresh();
+    if (entry) {
+      const { i, to } = entry.action;
+      if (to === undefined) this.focus(i);
+      else {
+        const start = regions[i].center;
+        const end = regions[to].center;
+        this.cameras.main.centerOn(
+          (start[0] + end[0]) / 2,
+          (start[1] + end[1]) / 2,
+        );
+      }
+    }
+  }
   private min() {
-    return Math.min(this.size.w / W, this.size.h / H);
+    return Math.min(this.size.w / W, this.size.h / (H + 125));
   }
   zoom(
     factor: number,
@@ -238,166 +212,278 @@ export class Atlas extends Phaser.Scene {
       extraH = Math.max(0, cam.height / z - H);
     cam.setBounds(-extraW / 2, -extraH / 2, W + extraW, H + extraH);
     this.view.scale(z);
+    this.resizeLabels();
   }
   refresh() {
     if (!this.graph) return;
-    const g = this.graph;
-    g.clear();
-    this.labels.forEach((t) => t.destroy());
-    this.labels = [];
     const { state, era, selected } = this.view;
-    polygons.forEach((p, i) => {
-      const r = state.layers[era][i],
-        owner = r.owner < 0 ? 3 : r.owner;
-      g.fillStyle(washes[era][owner])
-        .fillPoints(p, true)
-        .lineStyle(5, 0x736d56, 0.65)
-        .strokePoints(p, true);
-      const { x, y } = centers[i];
-      for (let k = 0; k < 100; k++) {
-        const dx = x + (hash(i * 101 + k) - 0.5) * 350,
-          dy = y + (hash(i * 211 + k + 4) - 0.5) * 440;
-        g.lineStyle(1.7, 0x71755b, 0.25).lineBetween(
-          dx,
-          dy,
-          dx + 5 + hash(k) * 9,
-          dy - 3,
+    const g = this.graph.clear();
+    const p = palettes[era];
+    this.labels.forEach((label) => label.destroy());
+    this.labels = [];
+    this.ambient = [];
+
+    g.fillStyle(p.sea).fillRect(-W, -H, W * 3, H * 3);
+    path(g.lineStyle(56, p.shallow, 0.65), coast, true).strokePath();
+    path(g.lineStyle(30, p.foam, 0.22), coast, true).strokePath();
+    path(g.lineStyle(15, p.shore), coast, true).strokePath();
+
+    for (const [i, region] of regions.entries()) {
+      const {
+        boundary,
+        terrain,
+        center: [cx, cy],
+      } = region;
+      const owner = state.layers[era][i].owner;
+      const tint = banners[owner < 0 ? 3 : owner];
+      const ground = terrain === "farmland" ? p.fields : p.land;
+      path(g.fillStyle(ground), boundary, true).fillPath();
+      if (owner >= 0) path(g.fillStyle(tint, 0.22), boundary, true).fillPath();
+      for (let k = 0; k < 140; k++) {
+        const x = cx + (noise(i * 211 + k) - 0.5) * 510;
+        const y = cy + (noise(i * 311 + k * 3) - 0.5) * 440;
+        if (!contains(boundary, x, y) || !contains(boundary, x + 8, y + 2))
+          continue;
+        g.lineStyle(1, k % 2 ? p.ridge : p.forest, 0.29).lineBetween(
+          x,
+          y,
+          x + 4 + noise(k) * 8,
+          y + 2,
         );
       }
-      for (let k = 0; k < (terrain[i] === "forest" ? 64 : 12); k++) {
-        const dx = x + (hash(k + i * 37) - 0.5) * 280,
-          dy = y + (hash(k * 3 + i * 73) - 0.5) * 200;
-        if (Math.abs(dx - x) > 50 || Math.abs(dy - y) > 55)
-          pine(g, dx, dy, 18 + hash(k * 7) * 25);
+    }
+
+    path(g.lineStyle(37, p.shore, 0.65), river).strokePath();
+    path(g.lineStyle(26, p.shallow), river).strokePath();
+    path(g.lineStyle(2, p.foam, 0.54), river).strokePath();
+
+    for (const [
+      i,
+      {
+        center: [x, y],
+      },
+    ] of regions.entries()) {
+      for (const j of neighbors[i].filter((j) => j > i)) {
+        const [tx, ty] = regions[j].center;
+        const bend: Point = [
+          (x + tx) / 2 + 22 * Math.sin(i + j),
+          (y + ty) / 2 - 17,
+        ];
+        const route: Point[] = [[x, y], bend, [tx, ty]];
+        if (era > 0)
+          path(
+            g.lineStyle(era === 1 ? 8 : 9, p.stone, 0.68),
+            route,
+          ).strokePath();
+        path(
+          g.lineStyle(era === 0 ? 3 : 2.5, p.road, 0.84),
+          route,
+        ).strokePath();
+        if (era === 2) g.fillStyle(p.light, 0.85).fillCircle(...bend, 3);
       }
-      if (terrain[i] === "farmland")
-        for (let k = 0; k < 16; k++) {
-          const dx = x - 90 + k * 10;
-          g.lineStyle(5, 0xb39456, 0.75).lineBetween(
-            dx,
-            y - 90,
-            dx + 27,
-            y - 40,
-          );
-        }
-      if (["mine", "pass"].includes(terrain[i]))
-        for (let k = 0; k < 7; k++) {
-          const dx = x - 105 + k * 32,
-            dy = y - 40 + 20 * Math.sin(k);
-          g.fillStyle(0x8e8979).fillTriangle(
-            dx - 38,
-            dy,
-            dx,
-            dy - 68,
-            dx + 41,
-            dy,
-          );
-          g.fillStyle(0xc2bca2).fillTriangle(
-            dx,
-            dy - 68,
-            dx + 41,
-            dy,
-            dx + 7,
-            dy - 12,
-          );
-        }
-    });
-    const river = Array.from(
-      { length: 120 },
-      (_, k) =>
-        new Phaser.Math.Vector2((k * W) / 119, 850 + 110 * Math.sin(k / 16)),
-    );
-    g.lineStyle(33, 0xb5c4ac)
-      .strokePoints(river, false)
-      .lineStyle(24, 0x76a4a4)
-      .strokePoints(river, false)
-      .lineStyle(3, 0xa5c1b9)
-      .strokePoints(river, false);
-    for (let i = 0; i < 18; i++) {
-      const { x, y } = centers[i];
-      for (const j of [i % 6 < 5 ? i + 1 : -1, i + 6])
-        if (j >= 0 && j < 18)
-          g.lineStyle(6, 0xa49272, 0.8).lineBetween(
-            x,
-            y,
-            centers[j].x,
-            centers[j].y,
-          );
     }
-    for (let i = 0; i < 6; i++) {
-      const x = centers[i + 6].x,
-        y = 850 + 110 * Math.sin(((x / W) * 119) / 16);
-      g.fillStyle(0x90795b).fillRect(x - 13, y - 24, 26, 48);
-      for (let n = -21; n <= 21; n += 7)
-        g.lineStyle(2, 0xd1bd90).lineBetween(x - 13, y + n, x + 13, y + n);
+
+    const [fordX, fordY] = regions[5].center;
+    g.fillStyle(p.shore).fillRect(fordX - 9, fordY - 21, 18, 42);
+    for (let dy = -18; dy <= 18; dy += 6)
+      g.lineStyle(1.5, p.stone).lineBetween(
+        fordX - 9,
+        fordY + dy,
+        fordX + 9,
+        fordY + dy,
+      );
+    for (const [x, y] of river) this.ambient.push({ x, y, water: true });
+    for (let i = 0; i < 66; i++) {
+      const x = 38 + noise(i * 83) * (W - 76);
+      const y = 38 + noise(i * 137) * (H - 76);
+      if (!contains(coast, x, y)) this.ambient.push({ x, y, water: true });
     }
-    polygons.forEach((p, i) => {
-      const r = state.layers[era][i],
-        c = centers[i],
-        { x, y } = c,
-        owner = r.owner < 0 ? 3 : r.owner;
-      if (i === selected) g.lineStyle(10, 0xc98b30).strokePoints(p, true);
-      if (r.city) settlement(g, x, y, r.city, era, inks[owner]);
-      else g.fillStyle(inks[owner]).fillCircle(x, y, 11);
-      const marker = ["◆", "▲", "●", "◇"][owner];
-      const label = (dy: number, str: string, size: number) =>
-        this.labels.push(
-          this.add
-            .text(x, y + dy, str, {
-              fontFamily: "Georgia,serif",
-              fontSize: size + "px",
-              color: "#23332f",
-              backgroundColor: "#e5dfc4",
-              padding: { x: 5, y: 2 },
-            })
-            .setOrigin(0.5),
-        );
-      label(29, marker + " " + this.view.name(i), 25);
-      if (r.build.length || r.pending.length)
-        label(
-          64,
-          [...r.build, ...r.pending]
-            .map(
-              (b) =>
-                ({
-                  farm: "♧",
-                  mill: "⚙",
-                  mine: "⛏",
-                  academy: "▤",
-                  plant: "ϟ",
-                  tower: "♜",
-                  wall: "▥",
-                  barracks: "⚑",
-                  outpost: "⚐",
-                })[b],
-            )
-            .join(" "),
-          23,
-        );
-      if (r.siege) label(-86, "⚔ " + r.siege.progress + "/2", 24);
-      if (r.army) {
-        const a = r.army;
-        for (let n = 0; n < 3; n++) {
-          const dx = x + 42 + n * 13,
-            dy = y - 15 + (n % 2) * 6;
-          g.lineStyle(4, inks[a.owner])
-            .lineBetween(dx, dy, dx - 4, dy + 11)
-            .lineBetween(dx, dy, dx + 5, dy + 11);
-          g.fillStyle(inks[a.owner]).fillRect(
-            dx - 4,
-            dy - 12 - a.level,
+
+    for (const [i, region] of regions.entries()) {
+      const {
+        boundary,
+        terrain,
+        center: [x, y],
+      } = region;
+      const area = state.layers[era][i];
+      const owner = area.owner < 0 ? 3 : area.owner;
+      const tint = banners[owner];
+      path(g.lineStyle(2.7, p.forest, 0.72), boundary, true).strokePath();
+      if (owner !== 3)
+        path(g.lineStyle(3.3, tint, 0.72), boundary, true).strokePath();
+      if (i === selected)
+        path(g.lineStyle(5, 0xfde9ae, 0.9), boundary, true).strokePath();
+
+      const wooded = terrain === "forest";
+      const rocky = terrain === "pass" || terrain === "mine";
+      for (let k = 0; k < (wooded ? 93 : 22); k++) {
+        const tx = x + (noise(i * 257 + k) - 0.5) * (wooded ? 290 : 240);
+        const ty = y + (noise(i * 503 + k) - 0.5) * 215;
+        if (Math.hypot(tx - x, ty - y) < 79 || !contains(boundary, tx, ty - 22))
+          continue;
+        tree(g, tx, ty, 12 + 18 * noise(k * 7), era);
+      }
+      if (rocky)
+        for (let k = 0; k < 8; k++) {
+          const dx = x - 94 + k * 25;
+          const dy = y - 47 + 17 * Math.sin(k * 1.9);
+          mountain(g, dx, dy, 33 + noise(i * 17 + k) * 37, era);
+        }
+      if (terrain === "farmland") {
+        g.fillStyle(p.shore, 0.42).fillEllipse(x - 52, y - 24, 108, 56);
+        for (let n = 0; n < 11; n++)
+          g.lineStyle(2.5, p.roof, 0.6).lineBetween(
+            x - 94 + n * 8,
+            y - 33,
+            x - 79 + n * 8,
+            y - 12,
+          );
+      }
+      if (terrain === "ruins")
+        for (let k = 0; k < 5; k++)
+          g.fillStyle(p.stone, 0.64).fillRect(
+            x - 42 + k * 17,
+            y - 29 + noise(k) * 12,
+            11,
             9,
-            15 + a.level,
           );
-          g.fillStyle(0xc99468).fillCircle(dx, dy - 17 - a.level, 5);
-          g.lineStyle(3, [0x705739, 0x454a47, 0x59b7bb][era]).lineBetween(
-            dx + 4,
-            dy - 6,
-            dx + (a.kind === "ranged" ? 19 : 9),
-            dy - (a.kind === "ranged" ? 11 : 24) - a.level * 2,
-          );
-        }
+      if (area.city) settlement(g, x, y, era, area.city);
+      else g.fillStyle(p.forest, 0.62).fillEllipse(x, y + 2, 22, 11);
+      if (owner !== 3)
+        this.ambient.push({ x, y: y - (area.city ? 46 : 16), tint });
+
+      const slots = [...area.build, ...area.pending];
+      for (const [n, kind] of slots.entries()) {
+        const direction = n === 0 ? -1 : 1;
+        const bx = x + direction * (kind === "fortifiedBridge" ? 35 : 75);
+        const by = y + (terrain === "farmland" || rocky ? -28 : 41);
+        const pending = n >= area.build.length;
+        building(
+          g,
+          bx,
+          by,
+          era,
+          kind,
+          pending,
+          !heritage[kind] || heritageEras(state, era, i, kind).length > 0,
+        );
+        if (!pending && ["plant", "mill", "refinery"].includes(kind))
+          this.ambient.push({ x: bx + 12, y: by - 23 });
       }
-    });
+
+      const legacy = Object.keys(heritage).some(
+        (kind) => heritageEras(state, era, i, kind).length,
+      );
+      if (echo(state, era, i) || legacy) {
+        const hx = x + 39;
+        const hy = y - 34;
+        g.lineStyle(2, p.light, 0.95)
+          .strokeCircle(hx, hy, 9)
+          .strokeCircle(hx + 9, hy - 4, 6);
+        g.fillStyle(p.light, 0.65).fillCircle(hx, hy, 3);
+      }
+
+      const action = this.animation?.entry.action;
+      const moving =
+        !this.reducedMotion.matches &&
+        action?.to === i &&
+        ["moved", "captured"].includes(this.animation?.entry.outcome ?? "");
+      if (area.army && !moving)
+        unit(g, x + 30, y - 7, era, banners[area.army.owner]);
+      this.label(
+        x,
+        y + 22,
+        markers[owner] + "  " + this.view.name(i),
+        "#ffefd3",
+      );
+      if (area.siege)
+        this.label(x, y - 75, "⚑ " + area.siege.progress + "/2", "#ffbd95");
+    }
+    this.resizeLabels();
+    this.update();
+  }
+
+  private resizeLabels() {
+    const zoom = this.cameras.main.zoom;
+    const scale = Math.max(1, 9.5 / (zoom * 23));
+    for (const label of this.labels) label.setScale(scale);
+  }
+
+  private label(x: number, y: number, value: string, color: string) {
+    this.labels.push(
+      this.add
+        .text(x, y, value, {
+          fontFamily: "Georgia, serif",
+          fontSize: "23px",
+          color,
+          padding: { x: 7, y: 3 },
+          backgroundColor: "#182f38",
+        })
+        .setOrigin(0.5)
+        .setDepth(2),
+    );
+  }
+
+  update() {
+    if (!this.motion) return;
+    const g = this.motion.clear();
+    const { era } = this.view;
+    const p = palettes[era];
+    const reduced = this.reducedMotion.matches;
+    const now = performance.now();
+    const time = reduced ? 0 : now / 1000;
+    for (const [i, point] of this.ambient.entries()) {
+      const { x, y, water, tint } = point;
+      const wave = Math.sin(time * 1.6 + i * 2);
+      if (water) {
+        const dx = wave * 5;
+        g.lineStyle(1.4, p.foam, 0.27 + 0.13 * wave).lineBetween(
+          x + dx - 9,
+          y,
+          x + dx + 9,
+          y + 1,
+        );
+      } else if (tint !== undefined) {
+        flag(g, x, y, tint, wave * 2.8);
+      } else {
+        const rise = (time * 12 + i * 7) % 22;
+        g.fillStyle(p.light, 0.6 - rise / 42).fillCircle(
+          x + wave * 3,
+          y - rise,
+          2 + rise / 15,
+        );
+      }
+    }
+    if (!this.animation) return;
+    const {
+      entry: {
+        action: { i, to },
+        f,
+        outcome,
+      },
+      started,
+    } = this.animation;
+    const [x, y] = regions[i].center;
+    const [tx, ty] = regions[to ?? i].center;
+    const tint = banners[f];
+    const progress = Math.min(1, (now - started) / orderDuration);
+    const pulse = reduced ? 0 : Math.sin(progress * Math.PI);
+    g.lineStyle(4, tint, 0.95).strokeCircle(tx, ty, 36 + pulse * 14);
+    g.lineStyle(2, 0xfff1bf, 0.9).strokeCircle(tx, ty, 29 + pulse * 9);
+    if (to === undefined) return;
+    g.lineStyle(4, tint, 0.82).lineBetween(x, y, tx, ty);
+    if (reduced) return;
+    const arrived = outcome === "captured" || outcome === "moved";
+    const fraction = arrived
+      ? Math.min(1, progress * 1.3)
+      : Math.sin(progress * Math.PI) * 0.86;
+    unit(
+      g,
+      x + (tx - x) * fraction + 30,
+      y + (ty - y) * fraction - 7,
+      era,
+      tint,
+      Math.sin(progress * 26) * 2,
+    );
   }
 }

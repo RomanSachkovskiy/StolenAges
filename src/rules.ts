@@ -4,6 +4,7 @@ import {
   costs,
   goods,
   neighbors,
+  prerequisites,
   techs,
   terrain,
   type State,
@@ -16,22 +17,63 @@ export const product: Record<string, Good> = {
   mill: "wood",
   mine: "ore",
   plant: "energy",
-  academy: "knowledge",
-  outpost: "influence",
+  irrigationHub: "food",
+  refinery: "ore",
 };
+export const heritage: Record<
+  string,
+  { grounds: string[]; sources: string[] }
+> = {
+  irrigationHub: { grounds: ["farmland"], sources: ["farm"] },
+  refinery: { grounds: ["mine", "pass"], sources: ["mine"] },
+  fortifiedBridge: { grounds: ["crossing"], sources: ["tower", "wall"] },
+};
+
+export function isImmediate(kind: string) {
+  return (
+    !buildings.includes(kind) || ["tower", "barracks", "outpost"].includes(kind)
+  );
+}
+
 export function cost(s: State, a: Action): Cost {
+  const r = s.layers[a.e][a.i];
+  const player = s.factions[s.active];
   if (a.kind === "city") {
-    const level = s.layers[a.e][a.i].city;
-    return (
-      [
-        {},
-        { wood: 5, ore: 2 },
-        { wood: 8, ore: 5 },
-        { wood: 12, ore: 8, knowledge: 5 },
-      ][level] ?? {}
-    );
+    const price = [
+      {},
+      { wood: 5, ore: 2 },
+      { wood: 8, ore: 5 },
+      { wood: 12, ore: 10 },
+    ][r.city];
+    return {
+      ...price,
+      ore: Math.max(
+        0,
+        (price?.ore ?? 0) - Number(player.tech.includes("urbanism")),
+      ),
+    };
   }
-  return techs.includes(a.kind) ? { knowledge: 5 } : (costs[a.kind] ?? {});
+  if (techs.includes(a.kind)) {
+    const advanced = !!prerequisites[a.kind];
+    return {
+      wood: advanced ? 4 : 3,
+      ore: (advanced ? 5 : 3) - Number(r.build.includes("academy")),
+      energy: a.kind === "resonance" ? 2 : 0,
+    };
+  }
+  const price = costs[a.kind] ?? {};
+  if (
+    a.kind === "plant" &&
+    s.layers[2].some(
+      (area) =>
+        area.owner === s.active &&
+        [...area.build, ...area.pending].includes("plant"),
+    )
+  )
+    return { ...price, energy: 2 };
+  if (["tower", "wall"].includes(a.kind) && player.tech.includes("masonry"))
+    return { ...price, wood: (price.wood ?? 0) - 1 };
+  return price;
 }
 export function candidates(s: State, e: number, i: number): Action[] {
   const r = s.layers[e][i],
@@ -93,7 +135,13 @@ export function invalid(s: State, a: Action): string {
       mill: ["forest", "city", "village"],
       mine: ["mine", "pass"],
     };
+    const legacy = heritage[k];
     if (types[k] && !types[k].includes(terrain[i])) return "ground";
+    if (legacy) {
+      if (e === 0) return "wrongEra";
+      if (!legacy.grounds.includes(terrain[i])) return "ground";
+      if (!heritageEras(s, e, i, k).length) return "needEcho";
+    }
   }
   if (k === "city" && (!r.city || r.city >= (capitals.includes(i) ? 4 : 3)))
     return "maximum";
@@ -101,24 +149,88 @@ export function invalid(s: State, a: Action): string {
     if (!capitals.includes(i) && !r.build.includes("barracks"))
       return "needBarracks";
     if (army) return "occupied";
-    if (s.layers.flat().filter((x) => x.army?.owner === f).length >= 8)
+    if (
+      s.layers.flat().filter((x) => x.army?.owner === f).length >=
+      armyLimit(s, f)
+    )
       return "armyCap";
   }
-  if (techs.includes(k) && p.tech.includes(k)) return "duplicate";
+  if (techs.includes(k)) {
+    if (p.tech.includes(k)) return "duplicate";
+    if (["resonance", "grids"].includes(k) && e !== 2) return "wrongEra";
+    if (prerequisites[k] && !p.tech.includes(prerequisites[k]))
+      return "needTech";
+  }
   return goods.some((g) => p.stock[g] < (cost(s, a)[g] ?? 0)) ? "shortage" : "";
 }
-export function echo(s: State, e: number, i: number) {
-  const f = s.layers[e][i].owner;
-  if (f < 0 || !e) return 0;
-  const past = s.layers[0][i],
-    present = s.layers[1][i];
-  return (
-    Number(
-      past.owner === f &&
-        (past.city > 0 || past.build.some((b) => b in product)),
-    ) + Number(e === 2 && present.owner === f && present.build.length > 0)
+function earlierOwnedEras(s: State, e: number, i: number) {
+  const owner = s.layers[e][i].owner;
+  return owner < 0
+    ? []
+    : Array.from({ length: e }, (_, era) => era).filter(
+        (era) => s.layers[era][i].owner === owner,
+      );
+}
+
+export function echoSources(s: State, e: number, i: number) {
+  return earlierOwnedEras(s, e, i).flatMap((era) => {
+    const area = s.layers[era][i];
+    const buildings =
+      era === 0
+        ? area.build.filter((kind) => kind === "outpost" || kind in product)
+        : area.build;
+    const sources =
+      era === 0 && area.city ? ["settlement", ...buildings] : buildings;
+    return sources.length ? [{ era, sources }] : [];
+  });
+}
+
+export function heritageEras(s: State, e: number, i: number, kind: string) {
+  const legacy = heritage[kind];
+  if (!legacy?.grounds.includes(terrain[i])) return [];
+  return earlierOwnedEras(s, e, i).filter((era) =>
+    s.layers[era][i].build.some((building) =>
+      legacy.sources.includes(building),
+    ),
   );
 }
+
+export function echo(s: State, e: number, i: number) {
+  return echoSources(s, e, i).length;
+}
+
+export function echoIncome(s: State, e: number, i: number) {
+  const links = echo(s, e, i);
+  const faction = s.layers[e][i].owner;
+  if (!links || e !== 2 || !s.factions[faction].tech.includes("resonance"))
+    return links;
+  const prior = s.layers[e]
+    .slice(0, i)
+    .filter((area, j) => area.owner === faction && echo(s, e, j)).length;
+  return links + Number(prior < 2);
+}
+
+export function armyLimit(s: State, faction: number) {
+  return s.factions[faction].tech.includes("reserves") ? 9 : 8;
+}
+
+export function yieldPerBuilding(s: State, faction: number, kind: string) {
+  if (!product[kind]) return 0;
+  const tech = s.factions[faction].tech;
+  if (kind === "farm")
+    return (
+      2 +
+      Number(tech.includes("agriculture")) +
+      Number(tech.includes("irrigation"))
+    );
+  const upgrade: Record<string, string> = {
+    mill: "forestry",
+    mine: "metallurgy",
+    plant: "grids",
+  };
+  return 2 + Number(tech.includes(upgrade[kind]));
+}
+
 export function primary(i: number, e: number): Good {
   return terrain[i] === "forest"
     ? "wood"
@@ -129,17 +241,8 @@ export function primary(i: number, e: number): Good {
         : "food";
 }
 export function income(s: State, f: number) {
-  const total = {
-      food: 0,
-      wood: 0,
-      ore: 0,
-      energy: 0,
-      knowledge: 0,
-      influence: 0,
-    },
-    p = s.factions[f];
-  let resonance = 0,
-    armies = 0;
+  const total = { food: 0, wood: 0, ore: 0, energy: 0 };
+  let armies = 0;
   s.layers.forEach((layer, e) =>
     layer.forEach((r, i) => {
       if (r.army?.owner === f) armies++;
@@ -147,24 +250,13 @@ export function income(s: State, f: number) {
       if (r.city) {
         total.food += 1 + r.city;
         total.wood++;
-        total.knowledge += r.city;
       }
-      for (const b of r.build) {
-        const g = product[b];
-        if (g)
-          total[g] +=
-            b === "outpost"
-              ? 1
-              : b === "farm" && p.tech.includes("agriculture")
-                ? 3
-                : 2;
+      for (const kind of r.build) {
+        const resource = product[kind];
+        if (resource && (!heritage[kind] || heritageEras(s, e, i, kind).length))
+          total[resource] += yieldPerBuilding(s, f, kind);
       }
-      const bonus = echo(s, e, i);
-      total[primary(i, e)] += bonus;
-      if (e === 2 && bonus && resonance < 2 && p.tech.includes("resonance")) {
-        total[primary(i, e)]++;
-        resonance++;
-      }
+      total[primary(i, e)] += echoIncome(s, e, i);
     }),
   );
   total.food -= Math.ceil(armies / 2);
@@ -188,9 +280,7 @@ export function develop(s: State, a: Action) {
     p = s.factions[s.active];
   if (buildings.includes(k)) {
     r.owner = s.active;
-    (["tower", "barracks", "outpost"].includes(k) ? r.build : r.pending).push(
-      k,
-    );
+    (isImmediate(k) ? r.build : r.pending).push(k);
   } else if (k === "city") r.city++;
   else if (techs.includes(k)) p.tech.push(k);
 }

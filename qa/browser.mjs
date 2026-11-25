@@ -1,10 +1,18 @@
 import { chromium, expect } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || undefined,
   args: ["--no-sandbox"],
 });
+const screenshotDirectory = "docs/screenshots/release";
+const capture = async (page, name) => {
+  if (!process.env.SCREENSHOTS) return;
+  await mkdir(screenshotDirectory, { recursive: true });
+  await page.screenshot({ path: screenshotDirectory + "/" + name + ".png" });
+};
+
 try {
   for (const [width, height] of [
     [320, 568],
@@ -19,10 +27,22 @@ try {
     const context = await browser.newContext({
       viewport: { width, height },
       hasTouch: width <= 1024,
+      reducedMotion: width === 390 ? "reduce" : "no-preference",
     });
-    const page = await context.newPage(),
-      errors = [];
+    const page = await context.newPage();
+    const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(() => {
+      const random = crypto.getRandomValues.bind(crypto);
+      crypto.getRandomValues = (array) => {
+        if (array instanceof Uint32Array && array.length === 1) {
+          array[0] = 42;
+          return array;
+        }
+        return random(array);
+      };
+      localStorage.setItem("stolen-ages.v1", "{bad");
+    });
     await page.route("https://atlas.test/StolenAges/**", async (route) => {
       const pathname =
         new URL(route.request().url()).pathname.slice("/StolenAges/".length) ||
@@ -36,55 +56,73 @@ try {
             : "text/html",
       });
     });
+
     const button = (s) => page.getByRole("button", { name: s, exact: true });
-    await page.goto("https://atlas.test/StolenAges/");
-    await button("Новая партия").click();
-    await button("Пропустить").click();
+    const counter = page.locator(".counter");
     const zoom = async () =>
       parseInt(await page.locator(".scaleLabel").textContent());
+    await page.goto("https://atlas.test/StolenAges/");
+    await expect(button("Продолжить")).toHaveCount(0);
+    await button("Новая партия").click();
+    await button("Пропустить").click();
+    await expect(counter).toContainText("1/18");
+    await expect(page.locator(".scaleLabel")).toHaveText(/\d+%/);
     const base = await zoom();
     await button("Приблизить").click();
     expect(await zoom()).toBeGreaterThan(base);
     await button("Отдалить").click();
     expect(await zoom()).toBe(base);
-    await button("К столице").click();
-    await page.mouse.move(width * 0.4, height * 0.45);
-    await page.mouse.wheel(0, -120);
-    await button("Настоящее").click();
-    await button("Действия").click();
-    await button("Ферма").click();
-    const save = () =>
-      page.evaluate(() => JSON.parse(localStorage.getItem("stolen-ages.v1")));
-    expect((await save()).ap).toBe(2);
-    await button("Закрыть").click();
-    await button("Меню").click();
-    await button("Настройки").click();
-    await button("English").click();
-    await button("Back").click();
-    await button("Continue").click();
-    await expect(button("Present")).toHaveClass("on");
-    expect((await save()).ap).toBe(2);
-    await page.reload();
-    await expect(button("End turn")).toBeVisible();
-    await page.setViewportSize({ width: height, height: width });
-    await expect(button("End turn")).toBeInViewport();
-    await page.setViewportSize({ width, height });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
-    await button("Menu").click();
-    await button("Settings").click();
-    await button("Русский").click();
-    await button("Назад").click();
-    await button("Продолжить").click();
-    if (width === 390 || width === 1920) {
-      await button("К столице").click();
-      await page.waitForTimeout(180);
-      if (process.env.SCREENSHOTS)
-        await page.screenshot({ path: "docs/screenshots/" + width + ".png" });
+
+    if (width === 1920) {
+      await capture(page, "01-past");
+      await button("Настоящее").click();
+      await capture(page, "02-present");
+      await button("Будущее").click();
+      await capture(page, "03-future");
     }
+    if (width === 390) await capture(page, "05-mobile");
+
+    await button("Прошлое").click();
+    await button("Действия").click();
+    const area = page.getByLabel("Регион", { exact: true });
+    await expect(area.locator("option")).toHaveCount(12);
+    await area.selectOption({ label: "Солнечная нива" });
+    await button("Аванпост").click();
+    await expect(counter).toContainText("2/3");
+    await button("Настоящее").click();
+    await button("Аванпост").click();
+    await expect(counter).toContainText("1/3");
+    await button("Прошлое").click();
+    await expect(button("Ферма")).toContainText("Оросительный узел");
+    await button("Ферма").click();
+    await button("Настоящее").click();
+    await expect(counter).toContainText("0/3");
+    await button("Завершить ход").click();
+    await button("Подтвердить").click();
+    const viewing = page.locator("#ai-playback");
+    await expect(viewing).toBeVisible();
+    await expect(viewing.getByRole("status")).toContainText(/Алый орден/);
+    await expect(button("Завершить ход")).toBeDisabled();
+    if (width === 1920) await capture(page, "04-opponent-turn");
+    if (width === 390 || width === 1920) {
+      await expect(viewing.getByRole("status")).toContainText(
+        /Аметистовый двор/,
+      );
+      await expect(viewing).toBeHidden();
+    } else await button("Пропустить показ").click();
+    await expect(counter).toContainText("2/18");
+    await expect(button("Настоящее")).toHaveClass("on");
+    await button("Действия").click();
+    await expect(page.locator(".echo-card")).toContainText(
+      "Доступно благодаря эху",
+    );
+    await expect(page.locator(".echo-card")).toContainText("Прошлое");
+    await expect(button("Оросительный узел")).toBeEnabled();
+    if (width === 1920) await capture(page, "06-temporal-echo");
+    await button("Оросительный узел").click();
+    await expect(counter).toContainText("2/3");
+    await button("Закрыть").click();
+
     if (width === 390) {
       const client = await context.newCDPSession(page);
       const touch = (type, points) =>
@@ -103,20 +141,42 @@ try {
       ]);
       await touch("touchEnd", []);
       expect(await zoom()).toBeGreaterThan(priorZoom);
-      expect((await save()).ap).toBe(2);
-      await expect(page.locator("#sheet")).toBeHidden();
-      for (let round = 0; round < 20; round++) {
+
+      for (let round = 2; round <= 18; round++) {
+        if (await button("Начать заново").isVisible()) break;
         await button("Завершить ход").click();
         await button("Подтвердить").click();
-        if ((await save()).winner !== null) break;
+        await button("Пропустить показ").click();
       }
       await expect(button("Начать заново")).toBeVisible();
       await button("Начать заново").click();
-      expect((await save()).round).toBe(1);
-      await page.addInitScript(() => localStorage.setItem("stolen-ages.v1", "{bad"));
-      await page.reload();
-      await expect(button("Новая партия")).toBeVisible();
+      await button("Пропустить").click();
+      await expect(counter).toContainText("1/18");
     }
+
+    await button("Меню").click();
+    await button("Настройки").click();
+    await button("English").click();
+    await button("Back").click();
+    await button("Continue").click();
+    await expect(button("End turn")).toBeVisible();
+    await page.setViewportSize({ width: height, height: width });
+    await expect(button("End turn")).toBeInViewport();
+    await page.setViewportSize({ width, height });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    expect(
+      await page.evaluate(() => localStorage.getItem("stolen-ages.v1")),
+    ).toBe("{bad");
+    await page.reload();
+    await expect(button("New game")).toBeVisible();
+    await expect(button("Continue")).toHaveCount(0);
+    await button("New game").click();
+    await button("Skip").click();
+    await expect(counter).toContainText("1/18");
     expect(errors).toEqual([]);
     await context.close();
     console.log(width + "×" + height + " passed");

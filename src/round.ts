@@ -1,11 +1,15 @@
 import {
+  actionsPerTurn,
+  dominationTarget,
   goods,
+  maxRounds,
   neighbors,
   roll,
   techs,
   terrain,
   type State,
   type Action,
+  type Entry,
 } from "./world";
 import { candidates, echo, economy, invalid, product } from "./rules";
 import { execute, hostile, powers } from "./combat";
@@ -38,17 +42,19 @@ function utility(s: State, a: Action) {
   if (k === "infantry" || k === "ranged")
     return (aggressive ? 6 : 4) + threats(a.i);
   if (techs.includes(k)) return aggressive ? 4 : 7;
-  if (k === "tower" || k === "wall")
+  if (["tower", "wall", "fortifiedBridge"].includes(k))
     return threats(a.i) * 2 + (aggressive ? 1 : 3);
   if (product[k]) return 3 + 8 / (1 + s.factions[f].stock[product[k]] / 5);
   return 2;
 }
-export function ai(s: State) {
+type RecordOrder = (entry: Entry, state: State) => void;
+
+export function ai(s: State, record?: RecordOrder) {
   while (s.ap > 0 && s.winner === null) {
     let best: Action | undefined,
       high = -Infinity;
-    for (let e = 0; e < 3; e++)
-      for (let i = 0; i < 18; i++)
+    for (let e = 0; e < s.layers.length; e++)
+      for (let i = 0; i < terrain.length; i++)
         for (const a of candidates(s, e, i)) {
           if (invalid(s, a)) continue;
           const score = utility(s, a) + roll(s) * 0.2;
@@ -59,6 +65,7 @@ export function ai(s: State) {
         }
     if (!best) break;
     execute(s, best);
+    record?.(s.log[s.log.length - 1], s);
   }
 }
 export function score(s: State, f: number) {
@@ -79,9 +86,7 @@ export function score(s: State, f: number) {
     }),
   );
   const p = s.factions[f],
-    stock = goods
-      .filter((g) => g !== "influence")
-      .reduce((n, g) => n + Math.floor(p.stock[g] / 3), 0);
+    stock = goods.reduce((n, g) => n + Math.floor(p.stock[g] / 3), 0);
   return {
     land,
     cities,
@@ -94,12 +99,12 @@ export function score(s: State, f: number) {
       Math.min(10, stock),
   };
 }
-export function endTurn(s: State) {
+export function endTurn(s: State, record?: RecordOrder) {
   if (s.winner !== null || s.active !== 0) return;
   for (const f of [1, 2]) {
     s.active = f;
-    s.ap = 3;
-    ai(s);
+    s.ap = actionsPerTurn;
+    ai(s, record);
     if (s.winner !== null) return;
   }
   economy(s);
@@ -116,8 +121,8 @@ export function endTurn(s: State) {
         b.cities - a.cities ||
         b.tie - a.tie,
     );
-  const dominant = ranking.find((x) => x.land >= 38);
-  if (dominant || s.round === 20) {
+  const dominant = ranking.find((x) => x.land >= dominationTarget);
+  if (dominant || s.round === maxRounds) {
     s.winner = (dominant ?? ranking[0]).f;
     s.reason = dominant ? "domination" : "points";
   } else {
@@ -133,5 +138,14 @@ export function endTurn(s: State) {
     s.round++;
   }
   s.active = 0;
-  s.ap = 3;
+  s.ap = actionsPerTurn;
+}
+
+export function resolveTurn(s: State) {
+  const result = structuredClone(s);
+  const orders: { entry: Entry; state: State }[] = [];
+  endTurn(result, (entry, state) =>
+    orders.push({ entry, state: structuredClone(state) }),
+  );
+  return { orders, result };
 }
