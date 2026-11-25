@@ -6,7 +6,7 @@
 
 ![Карта на компьютере](docs/screenshots/release/01-past.png)
 
-[Спецификация v0.2.0](docs/GAME_SPEC_V0.2.md) · [Рабочая тетрадь GDD](https://stolenages-gdd.ttuysteam.chatgpt.site)
+[Спецификация v0.2.0](docs/GAME_SPEC_V0.2.md)
 
 ## Как играть
 
