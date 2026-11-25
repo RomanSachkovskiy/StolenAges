@@ -1,7 +1,6 @@
 name: Check and publish
 on:
   push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       publish:
@@ -79,6 +78,10 @@ jobs:
           title="Stolen Ages $tag"
           test "$(git log -1 --format=%s)" = "Release $title"
 
+          shopt -s nullglob
+          screenshots=(docs/screenshots/release/*.png)
+          test "${#screenshots[@]}" -gt 0
+
           if git rev-parse -q --verify "refs/tags/$tag"; then
             test "$(git rev-list -n1 "$tag")" = "$GITHUB_SHA"
           else
@@ -86,10 +89,11 @@ jobs:
             git push origin "refs/tags/$tag"
           fi
 
-          if gh release view "$tag" --json isDraft,url > release-state.json; then
+          if gh release view "$tag" --json isDraft > release-state.json; then
             test "$(jq -r .isDraft release-state.json)" = false
-            jq -r .url release-state.json
+            gh release upload "$tag" "${screenshots[@]}" --clobber
           else
-            gh release create "$tag" --verify-tag --title "$title" \
+            gh release create "$tag" "${screenshots[@]}" --verify-tag --title "$title" \
               --generate-notes --notes "[Играть на GitHub Pages]($PAGES_URL)"
           fi
+          gh release view "$tag" --json url --jq .url

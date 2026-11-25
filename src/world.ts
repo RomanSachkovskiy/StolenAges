@@ -1,40 +1,15 @@
-export const terrain = [
-  "city",
-  "forest",
-  "farmland",
-  "village",
-  "mine",
-  "city",
-  "plain",
-  "crossing",
-  "village",
-  "pass",
-  "forest",
-  "plain",
-  "village",
-  "mine",
-  "city",
-  "farmland",
-  "ruins",
-  "plain",
-];
-export const capitals = [0, 5, 14];
-export const neighbors = terrain.map((_, i) =>
-  [
-    i - 6,
-    i + 6,
-    ...(i % 6 ? [i - 1] : []),
-    ...(i % 6 < 5 ? [i + 1] : []),
-  ].filter((j) => j >= 0 && j < 18),
+import { adjacency, regions } from "./geography";
+
+export const terrain = regions.map((region) => region.terrain);
+export const capitals = regions.flatMap((region, i) =>
+  region.terrain === "city" ? [i] : [],
 );
-export const goods = [
-  "food",
-  "wood",
-  "ore",
-  "energy",
-  "knowledge",
-  "influence",
-] as const;
+export const neighbors = adjacency;
+export const eraCount = 3;
+export const maxRounds = 18;
+export const actionsPerTurn = 3;
+export const dominationTarget = Math.ceil(regions.length * eraCount * 0.7);
+export const goods = ["food", "wood", "ore", "energy"] as const;
 export type Good = (typeof goods)[number];
 export type Stock = Record<Good, number>;
 export type Cost = Partial<Stock>;
@@ -43,22 +18,23 @@ export const initialStock = {
   wood: 12,
   ore: 8,
   energy: 0,
-  knowledge: 3,
-  influence: 5,
 };
 export const costs: Record<string, Cost> = {
   farm: { wood: 3 },
   mill: { food: 3 },
   mine: { wood: 3, food: 2 },
   academy: { wood: 4, ore: 3 },
-  plant: { ore: 4, knowledge: 2 },
+  plant: { ore: 4, wood: 3 },
   tower: { wood: 3, ore: 1 },
   wall: { wood: 5, ore: 3 },
   barracks: { wood: 4, ore: 2 },
-  outpost: { wood: 2, influence: 2 },
+  outpost: { wood: 2, food: 2 },
   infantry: { food: 3, wood: 2 },
   ranged: { food: 3, ore: 3 },
-  train: { ore: 2, knowledge: 2 },
+  train: { ore: 2, food: 2 },
+  irrigationHub: { wood: 4, ore: 3 },
+  refinery: { wood: 4, ore: 3 },
+  fortifiedBridge: { wood: 4, ore: 3 },
   march: {},
 };
 export const buildings = [
@@ -71,13 +47,26 @@ export const buildings = [
   "wall",
   "barracks",
   "outpost",
+  "irrigationHub",
+  "refinery",
+  "fortifiedBridge",
 ];
+export const prerequisites: Record<string, string> = {
+  irrigation: "agriculture",
+  forestry: "agriculture",
+  masonry: "fortification",
+  metallurgy: "logistics",
+  urbanism: "logistics",
+  reserves: "training",
+  grids: "resonance",
+};
 export const techs = [
   "agriculture",
   "fortification",
   "logistics",
   "training",
   "resonance",
+  ...Object.keys(prerequisites),
 ];
 export interface Army {
   owner: number;
@@ -114,7 +103,7 @@ export interface Entry {
   outcome: string;
 }
 export interface State {
-  version: 1;
+  version: 2;
   seed: number;
   rng: number;
   round: number;
@@ -128,12 +117,12 @@ export interface State {
 }
 export function newGame(seed: number): State {
   return {
-    version: 1,
+    version: 2,
     seed,
     rng: seed >>> 0,
     round: 1,
     active: 0,
-    ap: 3,
+    ap: actionsPerTurn,
     winner: null,
     reason: "",
     log: [],
@@ -144,11 +133,8 @@ export function newGame(seed: number): State {
       hungry: false,
       extraMarch: true,
     })),
-    layers: [0, 1, 2].map((e) =>
-      terrain.map((t, i) => {
-        const owner = capitals.includes(i)
-          ? capitals.indexOf(i)
-          : [1, 4, 15].indexOf(i);
+    layers: Array.from({ length: eraCount }, (_, e) =>
+      regions.map(({ terrain: t, start: owner }, i) => {
         return {
           owner,
           city: Number(t === "city" || t === "village"),

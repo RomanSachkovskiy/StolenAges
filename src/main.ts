@@ -1,8 +1,13 @@
 import { route } from "./rules";
 import Phaser from "phaser";
-import { Atlas } from "./map";
+import { Atlas, orderDuration } from "./map";
 import {
+  actionsPerTurn,
+  dominationTarget,
   goods,
+  maxRounds,
+  newGame,
+  prerequisites,
   terrain,
   techs,
   buildings,
@@ -12,21 +17,25 @@ import {
 import {
   candidates,
   cost,
-  echo,
+  echoIncome,
+  echoSources,
+  heritage,
+  heritageEras,
+  isImmediate,
+  yieldPerBuilding,
   income,
   invalid,
   primary,
   product,
 } from "./rules";
 import { execute, hostile, powers } from "./combat";
-import { endTurn, score } from "./round";
+import { resolveTurn, score } from "./round";
 import { place, translate, type Lang } from "./locale";
-import { fresh, parseSave } from "./save";
 import "./style.css";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML =
-  '<div id="world"></div><header></header><aside></aside><section id="sheet"></section><footer></footer><div id="overlay"></div><output aria-live="polite"></output>';
+  '<div id="world"></div><header></header><aside></aside><section id="sheet"></section><footer></footer><section id="ai-playback" hidden><div role="status" aria-live="polite"></div></section><div id="overlay"></div><output aria-live="polite"></output>';
 function el(tag: string, text = "", cls = "") {
   const x = document.createElement(tag);
   x.textContent = text;
@@ -47,60 +56,56 @@ const header = app.querySelector("header")!,
   sheet = app.querySelector<HTMLElement>("#sheet")!,
   over = app.querySelector<HTMLElement>("#overlay")!,
   message = app.querySelector("output")!;
-const saveKey = "stolen-ages.v1",
-  langKey = "stolen-ages.language",
+const langKey = "stolen-ages.language",
   eraKeys = ["past", "present", "future"],
   flags = ["you", "red", "violet"];
 let lang: Lang = "ru",
   state: State = fresh(),
-  saved = false,
+  started = false,
   screen = "menu",
   returnTo = "menu",
   era = 0,
   selected = 0,
   panel = "",
   guide = 0,
-  notice = "",
   toastTimer = 0;
 try {
   lang = localStorage.getItem(langKey) === "en" ? "en" : "ru";
-  const raw = localStorage.getItem(saveKey);
-  if (raw) {
-    state = parseSave(raw);
-    saved = true;
-    const ui = JSON.parse(localStorage.getItem(saveKey + ".view") ?? "{}");
-    era = [0, 1, 2].includes(ui.era) ? ui.era : 0;
-    selected =
-      Number.isInteger(ui.selected) && ui.selected >= 0 && ui.selected < 18
-        ? ui.selected
-        : 0;
-    screen = state.winner === null ? "game" : "result";
-  }
 } catch {
-  notice = "loadingError";
+  // The default language is available without storage.
 }
+function fresh() {
+  return newGame(crypto.getRandomValues(new Uint32Array(1))[0]);
+}
+const playbackPanel = app.querySelector<HTMLElement>("#ai-playback")!;
+const playbackStatus =
+  playbackPanel.querySelector<HTMLElement>("[role=status]")!;
+let playback: ReturnType<typeof resolveTurn> | undefined;
+let playbackTimer = 0;
+let returnCamera: ReturnType<Atlas["cameraPosition"]>;
 const t = (k: string) => translate(lang, k),
   name = (i: number) => place(lang, i);
 const scaleLabel = el("small", "", "scaleLabel");
+let displayState: State | undefined;
+let displayEra = 0;
 const view = {
   scale: (z: number) => {
     scaleLabel.textContent = Math.round(z * 100) + "%";
   },
   get state() {
-    return state;
+    return playback && displayState ? displayState : state;
   },
   get era() {
-    return era;
+    return playback && displayState ? displayEra : era;
   },
   get selected() {
-    return selected;
+    return playback ? -1 : selected;
   },
   name,
   select: (i: number) => {
-    if (screen !== "game") return;
+    if (screen !== "game" || playback) return;
     selected = i;
     panel = "build";
-    save();
     draw();
   },
 };
@@ -108,7 +113,7 @@ const atlas = new Atlas(view);
 new Phaser.Game({
   type: Phaser.CANVAS,
   parent: "world",
-  backgroundColor: "#b6b7a0",
+  backgroundColor: "#254b54",
   scene: atlas,
   scale: { mode: Phaser.Scale.RESIZE, width: "100%", height: "100%" },
   banner: false,
@@ -118,43 +123,21 @@ let activeSince = performance.now(),
   playedMs = 0,
   aiMs = 0,
   crashes = 0;
-try {
-  const stored = JSON.parse(localStorage.getItem(saveKey + ".stats") ?? "null");
-  if (stored?.seed === state.seed) {
-    playedMs = Number(stored.playedMs) || 0;
-    aiMs = Number(stored.aiMs) || 0;
-    crashes = Number(stored.crashes) || 0;
-  }
-} catch {
-  /* Optional playtest statistics may be unavailable. */
-}
 function checkpoint() {
   const now = performance.now();
-  if (!document.hidden && state.winner === null && saved)
+  if (wasVisible && state.winner === null && started)
     playedMs += Math.max(0, now - activeSince);
   activeSince = now;
 }
+let wasVisible = !document.hidden;
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden && saved) save();
-  else activeSince = performance.now();
+  if (wasVisible) checkpoint();
+  activeSince = performance.now();
+  wasVisible = !document.hidden;
 });
 window.addEventListener("error", () => {
   crashes++;
 });
-function save() {
-  checkpoint();
-  try {
-    localStorage.setItem(saveKey, JSON.stringify(state));
-    localStorage.setItem(saveKey + ".view", JSON.stringify({ era, selected }));
-    localStorage.setItem(
-      saveKey + ".stats",
-      JSON.stringify({ seed: state.seed, playedMs, aiMs, crashes }),
-    );
-    saved = true;
-  } catch {
-    toast(t("writeError"));
-  }
-}
 function toast(text: string) {
   message.textContent = text;
   clearTimeout(toastTimer);
@@ -166,39 +149,84 @@ function open(id: string) {
 }
 function start() {
   state = fresh();
+  started = true;
   playedMs = aiMs = crashes = 0;
   activeSince = performance.now();
   selected = 0;
   era = 0;
   panel = "";
   guide = 0;
-  save();
-  atlas.home();
+  atlas.overview();
   returnTo = "game";
   open("help");
 }
 function changeEra(e: number) {
   era = e;
-  save();
+  sheet.scrollTop = 0;
   draw();
 }
-function end() {
-  checkpoint();
-  const before = state.log.length,
-    now = performance.now();
-  endTurn(state);
-  aiMs += performance.now() - now;
-  if (state.winner === null)
-    toast(
-      t("aiOrders") + " " + (state.log.length - before) + " · " + t("journal"),
-    );
-  save();
-  panel = "";
+function finishPlayback() {
+  if (!playback) return;
+  window.clearTimeout(playbackTimer);
+  state = playback.result;
+  playback = undefined;
+  displayState = undefined;
+  playbackPanel.hidden = true;
+  playbackStatus.replaceChildren();
+  atlas.showOrder();
+  atlas.restoreCamera(returnCamera);
   open(state.winner === null ? "game" : "result");
+  if (state.winner === null)
+    foot
+      .querySelector<HTMLButtonElement>(".primary")
+      ?.focus({ preventScroll: true });
 }
+function nextOrder(index: number) {
+  const order = playback?.orders[index];
+  if (!order) {
+    finishPlayback();
+    return;
+  }
+  const { entry, state: afterOrder } = order;
+  const { action, f, outcome } = entry;
+  displayState = afterOrder;
+  displayEra = action.e;
+  app.dataset.era = eraKeys[action.e];
+  atlas.showOrder(entry);
+  playbackStatus.replaceChildren(
+    el("strong", t(flags[f]) + " · " + t(eraKeys[action.e])),
+    el(
+      "div",
+      name(action.i) + (action.to === undefined ? "" : " → " + name(action.to)),
+    ),
+    el(
+      "div",
+      t(action.kind) +
+        " · " +
+        t(outcome || (isImmediate(action.kind) ? "ready" : "pending")),
+    ),
+  );
+  playbackTimer = window.setTimeout(() => nextOrder(index + 1), orderDuration);
+}
+function end() {
+  if (playback) return;
+  checkpoint();
+  const now = performance.now();
+  playback = resolveTurn(state);
+  aiMs += performance.now() - now;
+  returnCamera = atlas.cameraPosition();
+  panel = "";
+  open("game");
+  playbackPanel.hidden = false;
+  skipPlayback.focus({ preventScroll: true });
+  nextOrder(0);
+}
+const skipPlayback = btn(t("skipPlayback"), finishPlayback);
+playbackPanel.append(skipPlayback);
 function showPanel(id: string) {
   panel = panel === id ? "" : id;
   draw();
+  sheet.scrollTop = 0;
 }
 function table(parent: HTMLElement, k: string, v: string) {
   const row = el("div", "", "row");
@@ -212,35 +240,104 @@ function actionText(a: Action) {
 }
 function hint(a: Action) {
   const k = a.kind;
-  if (k === "march" && hostile(state, a)) {
+  const tech = state.factions[state.active].tech;
+  if (k === "march") {
+    if (!hostile(state, a)) return t("marchEffect");
     const p = powers(state, a);
-    return t(
+    const outlook =
       p.attack * 0.9 >= p.defense
         ? "high"
         : p.attack * 1.1 < p.defense
           ? "low"
-          : "medium",
+          : "medium";
+    return (
+      t(outlook) +
+      " · " +
+      t("attackPower") +
+      " " +
+      p.attack.toFixed(1) +
+      " / " +
+      t("defense") +
+      " " +
+      p.defense
     );
   }
   if (product[k])
     return (
-      "+" + (k === "outpost" ? 1 : 2) + " " + t(product[k]) + " / " + t("round")
+      "+" +
+      yieldPerBuilding(state, state.active, k) +
+      " " +
+      t(product[k]) +
+      " / " +
+      t("round")
     );
   const notes: Record<string, string> = {
-    tower: "+2 " + t("defense"),
-    wall: "+4 " + t("defense"),
-    city: "+1 " + t("food") + " · +1 " + t("knowledge"),
+    tower: "+" + (tech.includes("fortification") ? 3 : 2) + " " + t("defense"),
+    wall: "+" + (tech.includes("fortification") ? 5 : 4) + " " + t("defense"),
+    fortifiedBridge: "+2 " + t("defense"),
+    academy: t("academyEffect"),
+    city: "+1 " + t("food") + " / " + t("round"),
     train: "+1 " + t("level"),
-    infantry: "10 " + t("hp"),
-    ranged: "10 " + t("hp"),
-    barracks: t("infantry") + " / " + t("ranged"),
+    infantry: t("recruitEffect") + " · 10 " + t("hp"),
+    ranged: t("recruitEffect") + " · 10 " + t("hp"),
+    barracks: t("barracksEffect"),
+    outpost: t("outpostEffect"),
     agriculture: "+1 " + t("food") + " / " + t("farm"),
-    fortification: "+1 " + t("defense"),
-    logistics: "+1 " + t("march"),
-    training: "+1 " + t("level"),
-    resonance: "+1 " + t("echo"),
+    fortification: t("fortificationEffect"),
+    logistics: t("logisticsEffect"),
+    training: t("trainingEffect"),
+    resonance: t("resonanceEffect"),
+    irrigation: "+1 " + t("food") + " / " + t("farm"),
+    forestry: "+1 " + t("wood") + " / " + t("mill"),
+    metallurgy: "+1 " + t("ore") + " / " + t("mine"),
+    grids: "+1 " + t("energy") + " / " + t("plant"),
+    masonry: "−1 " + t("wood") + " · " + t("tower") + " / " + t("wall"),
+    urbanism: "−1 " + t("ore") + " · " + t("city"),
+    reserves: t("reservesEffect"),
   };
   return notes[k] ?? "";
+}
+function blockedReason(reason: string, a: Action) {
+  if (reason === "needTech")
+    return t(reason) + " · " + t(prerequisites[a.kind]);
+  if (reason === "needEcho")
+    return t(reason) + " · " + heritage[a.kind].sources.map(t).join(" / ");
+  if (reason === "shortage") {
+    const price = cost(state, a);
+    const stock = state.factions[state.active].stock;
+    const missing = goods
+      .filter((g) => (price[g] ?? 0) > stock[g])
+      .map((g) => price[g]! - stock[g] + " " + t(g));
+    return t(reason) + " · " + missing.join(", ");
+  }
+  return t(reason);
+}
+function echoPreview(a: Action) {
+  if (a.e >= 2 || !["city", "outpost", ...buildings].includes(a.kind))
+    return "";
+  const after = structuredClone(state);
+  if (execute(after, a)) return "";
+  const source = after.layers[a.e][a.i];
+  source.build.push(...source.pending);
+  const effects: string[] = [];
+  for (let e = a.e + 1; e < eraKeys.length; e++) {
+    const resource = primary(a.i, e);
+    const gain = echoIncome(after, e, a.i) - echoIncome(state, e, a.i);
+    const unlocked = Object.keys(heritage).filter(
+      (kind) =>
+        heritageEras(after, e, a.i, kind).length &&
+        !heritageEras(state, e, a.i, kind).length,
+    );
+    const changes = [
+      ...(gain > 0
+        ? ["+" + gain + " " + t(resource) + " / " + t("round")]
+        : []),
+      ...unlocked.map(t),
+    ];
+    if (changes.length)
+      effects.push(t(eraKeys[e]) + " · " + changes.join(", "));
+  }
+  return effects.join(" / ");
 }
 function actionButton(a: Action) {
   const reason = invalid(state, a),
@@ -257,8 +354,13 @@ function actionButton(a: Action) {
         toast(t(err));
         return;
       }
-      save();
-      toast(t(state.log.at(-1)?.outcome || "ready"));
+      checkpoint();
+      toast(
+        t(
+          state.log.at(-1)?.outcome ||
+            (isImmediate(a.kind) ? "ready" : "pending"),
+        ),
+      );
       if (state.winner !== null) screen = "result";
       draw();
     },
@@ -269,9 +371,60 @@ function actionButton(a: Action) {
   b.append(
     el("strong", actionText(a)),
     el("small", parts.join(" · ")),
-    el("small", reason ? t(reason) : hint(a)),
+    el(
+      "small",
+      hint(a) + " · " + t(isImmediate(a.kind) ? "immediately" : "atRoundEnd"),
+    ),
   );
+  if (reason) b.append(el("small", blockedReason(reason, a), "order-reason"));
+  else {
+    const preview = echoPreview(a);
+    if (preview)
+      b.append(el("small", t("echo") + " · " + preview, "order-echo"));
+  }
   return b;
+}
+function drawEcho() {
+  const details = document.createElement("details");
+  details.className = "echo-card";
+  const bonus = echoIncome(state, era, selected);
+  details.open = true;
+  details.append(
+    el(
+      "summary",
+      t("echo") +
+        (bonus
+          ? "  +" + bonus + " " + t(primary(selected, era)) + " / " + t("round")
+          : ""),
+    ),
+  );
+  details.append(el("p", t("echoDefinition")));
+  for (const { era: sourceEra, sources } of echoSources(state, era, selected))
+    details.append(
+      el("p", t(eraKeys[sourceEra]) + " · " + sources.map(t).join(", ")),
+    );
+  for (const [kind, legacy] of Object.entries(heritage)) {
+    if (!legacy.grounds.includes(terrain[selected])) continue;
+    const sources = heritageEras(state, era, selected, kind);
+    const status =
+      era === 0
+        ? t("echoLater")
+        : sources.length
+          ? t("echoAvailable") +
+            " · " +
+            sources.map((e) => t(eraKeys[e])).join(", ")
+          : t("needEcho");
+    details.append(
+      el(
+        "p",
+        t(kind) + " · " + status + " · " + legacy.sources.map(t).join(" / "),
+      ),
+    );
+    if (state.layers[era][selected].build.includes(kind) && !sources.length)
+      details.append(el("p", t("echoSuspended")));
+  }
+  if (era > 0 && !bonus) details.append(el("p", t("echoNoIncome")));
+  return details;
 }
 function drawPanel() {
   sheet.replaceChildren();
@@ -296,13 +449,13 @@ function drawPanel() {
   if (region) {
     const selector = document.createElement("select");
     selector.setAttribute("aria-label", t("territory"));
-    for (let i = 0; i < 18; i++)
+    for (let i = 0; i < terrain.length; i++)
       selector.add(new Option(name(i), String(i), false, i === selected));
     selector.onchange = () => {
       selected = Number(selector.value);
       atlas.focus(selected);
-      save();
       draw();
+      sheet.scrollTop = 0;
     };
     sheet.append(selector);
     sheet.append(
@@ -341,17 +494,7 @@ function drawPanel() {
             t("hp"),
         ),
       );
-    if (echo(state, era, selected))
-      sheet.append(
-        el(
-          "p",
-          t("echo") +
-            " +" +
-            echo(state, era, selected) +
-            " " +
-            t(primary(selected, era)),
-        ),
-      );
+    sheet.append(drawEcho());
     const tabs = el("div", "", "tabs");
     for (const id of ["build", "army", "research"])
       tabs.append(
@@ -366,7 +509,21 @@ function drawPanel() {
       );
     sheet.append(tabs);
     const list = el("div", "", "orders");
-    for (const a of candidates(state, era, selected)) {
+    const orders = candidates(state, era, selected).sort(
+      (a, b) =>
+        Number(
+          !!heritage[b.kind]?.grounds.includes(terrain[selected]) && era > 0,
+        ) -
+        Number(
+          !!heritage[a.kind]?.grounds.includes(terrain[selected]) && era > 0,
+        ),
+    );
+    for (const a of orders) {
+      if (
+        heritage[a.kind] &&
+        (era === 0 || !heritage[a.kind].grounds.includes(terrain[selected]))
+      )
+        continue;
       if (
         (techs.includes(a.kind)
           ? "research"
@@ -382,7 +539,7 @@ function drawPanel() {
       const label = el("label", t("route"));
       const destination = document.createElement("select");
       destination.add(new Option("—", ""));
-      for (let i = 0; i < 18; i++)
+      for (let i = 0; i < terrain.length; i++)
         if (i !== selected) destination.add(new Option(name(i), String(i)));
       const preview = el("div");
       destination.onchange = () => {
@@ -403,7 +560,10 @@ function drawPanel() {
     }
     sheet.append(list);
   } else if (panel === "resources") {
-    const rates = income(state, 0);
+    const projected = structuredClone(state);
+    for (const layer of projected.layers)
+      for (const area of layer) area.build.push(...area.pending);
+    const rates = income(projected, 0);
     for (const g of goods)
       table(
         sheet,
@@ -442,6 +602,10 @@ function drawPanel() {
 function draw() {
   document.documentElement.lang = lang;
   app.dataset.screen = screen;
+  app.dataset.era = eraKeys[era];
+  app.dataset.playback = String(!!playback);
+  skipPlayback.textContent = t("skipPlayback");
+  skipPlayback.setAttribute("aria-label", t("skipPlayback"));
   atlas.refresh();
   for (const x of [header, tools, foot, over]) x.replaceChildren();
   header.hidden = tools.hidden = foot.hidden = screen !== "game";
@@ -456,7 +620,15 @@ function draw() {
     header.append(
       el(
         "span",
-        t("round") + " " + state.round + "/20 · " + state.ap + " " + t("ap"),
+        t("round") +
+          " " +
+          state.round +
+          "/" +
+          maxRounds +
+          " · " +
+          (playback
+            ? t("opponentTurn")
+            : state.ap + "/" + actionsPerTurn + " " + t("ap")),
         "counter",
       ),
       btn("☰", () => open("pause"), "icon", t("menu")),
@@ -473,7 +645,11 @@ function draw() {
       btn(t("journal"), () => showPanel("journal")),
       btn(t("end"), () => open("turn"), "primary"),
     );
-    drawPanel();
+    if (playback) {
+      for (const container of [header, tools, foot])
+        for (const button of container.querySelectorAll("button"))
+          button.disabled = true;
+    } else drawPanel();
     return;
   }
   const box = el("article");
@@ -491,7 +667,7 @@ function draw() {
         "subtitle",
       ),
     );
-    if (saved)
+    if (started)
       button(
         "resume",
         () => open(state.winner === null ? "game" : "result"),
@@ -499,8 +675,8 @@ function draw() {
       );
     button(
       "new",
-      () => (saved ? open("overwrite") : start()),
-      saved ? "" : "primary",
+      () => (started ? open("overwrite") : start()),
+      started ? "" : "primary",
     );
     for (const id of ["help", "settings"])
       button(id, () => {
@@ -508,7 +684,6 @@ function draw() {
         guide = 0;
         open(id);
       });
-    if (notice) box.append(el("p", t(notice)));
   } else if (screen === "settings") {
     title(t("settings"));
     box.append(el("p", t("language")));
@@ -534,7 +709,10 @@ function draw() {
     button("back", () => open(returnTo));
   } else if (screen === "help") {
     title(t("help"));
-    box.append(el("small", guide + 1 + " / 5"), el("p", t("guide" + guide)));
+    box.append(
+      el("small", guide + 1 + " / 5"),
+      el("p", t("guide" + guide).replace("{target}", String(dominationTarget))),
+    );
     button(
       guide === 4 ? "close" : "next",
       () => {
@@ -617,7 +795,7 @@ sheet.addEventListener(
   { passive: true },
 );
 window.addEventListener("keydown", (ev) => {
-  if (screen !== "game") return;
+  if (screen !== "game" || playback) return;
   if (["1", "2", "3"].includes(ev.key)) changeEra(Number(ev.key) - 1);
   if (ev.key === "Escape") {
     panel = "";

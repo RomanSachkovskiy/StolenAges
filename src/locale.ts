@@ -1,10 +1,11 @@
+import { regions } from "./geography";
+
 export type Lang = "ru" | "en";
 const dictionary: Record<string, string> = {
   route: "Маршрут до региона|Plan route to region",
   noRoute: "Нет доступного пути|No available route",
   defense: "защита|defense",
   hp: "ОЗ|HP",
-  aiOrders: "Приказы соперников:|Opponent orders:",
   new: "Новая партия|New game",
   resume: "Продолжить|Continue",
   help: "Как играть|How to play",
@@ -30,8 +31,6 @@ const dictionary: Record<string, string> = {
   wood: "Древесина|Wood",
   ore: "Руда|Ore",
   energy: "Энергия|Energy",
-  knowledge: "Знания|Knowledge",
-  influence: "Влияние|Influence",
   farm: "Ферма|Farm",
   mill: "Лесопилка|Lumber mill",
   mine: "Шахта|Mine",
@@ -79,7 +78,7 @@ const dictionary: Record<string, string> = {
   eliminated:
     "Потеряны столицы, аванпосты и войска|Capitals, outposts and troops lost",
   domination: "Территориальное господство|Territorial domination",
-  points: "Итог после 20 раундов|Final score after 20 rounds",
+  points: "Итог после 18 раундов|Final score after 18 rounds",
   score: "Счёт|Score",
   echo: "Временное эхо|Temporal echo",
   income: "Доход за раунд|Income per round",
@@ -97,9 +96,7 @@ const dictionary: Record<string, string> = {
   army: "Войска|Troops",
   research: "Наука|Research",
   land: "Владения|Holdings",
-  loadingError:
-    "Сохранение повреждено. Начните новую партию.|Save damaged. Start a new game.",
-  writeError: "Браузер не сохранил партию|Browser could not save the game",
+  writeError: "Браузер не сохранил язык|Browser could not save your language",
   you: "Золотой союз|Golden League",
   red: "Алый орден|Crimson Order",
   violet: "Аметистовый двор|Amethyst Court",
@@ -119,38 +116,64 @@ const dictionary: Record<string, string> = {
   turnAsk: "Передать ход соперникам?|Pass the turn to your opponents?",
   pending: "Строится|Under construction",
   stand: "Последний рубеж: защита столицы +3|Last Stand: capital defense +3",
+  irrigationHub: "Оросительный узел|Irrigation hub",
+  refinery: "Обогатительный цех|Ore refinery",
+  fortifiedBridge: "Укреплённый мост|Fortified bridge",
+  irrigation: "Орошение|Irrigation",
+  forestry: "Лесозаготовка|Forestry",
+  masonry: "Каменная кладка|Masonry",
+  metallurgy: "Металлургия|Metallurgy",
+  urbanism: "Градостроительство|Urban planning",
+  reserves: "Резерв|Reserves",
+  grids: "Энергосети|Power grids",
+  settlement: "Поселение|Settlement",
+  skipPlayback: "Пропустить показ|Skip playback",
+  opponentTurn: "Ход соперников|Opponents' turn",
+  echoDefinition:
+    "Развитие области в ранней эпохе даёт доход и открывает местные постройки в поздней, пока область принадлежит одной фракции в обеих эпохах.|Development in an earlier era earns income and unlocks local buildings later while the same faction controls the area in both eras.",
+  echoNoIncome:
+    "Для дохода нужен общий владелец и завершённая постройка или поселение в прошлом.|Income needs matching control and completed development in an earlier era.",
+  echoLater: "Откроется в поздних эпохах|Unlocks in later eras",
+  echoAvailable: "Доступно благодаря эху|Unlocked by echo",
+  echoSuspended:
+    "Здание остаётся. Бонус вернётся, когда восстановится связь.|The building remains. Its bonus returns when the link is restored.",
+  needEcho:
+    "Нужна готовая постройка в более ранней эпохе под вашим контролем|Requires a completed source building you control in an earlier era",
+  needTech: "Требуется технология|Requires technology",
+  immediately: "Сразу|Immediately",
+  atRoundEnd: "К концу раунда|At the end of the round",
+  attackPower: "Атака|Attack",
+  marchEffect:
+    "Перемещает отряд в соседнюю область|Moves the unit to the adjacent area",
+  academyEffect:
+    "−1 руда за исследование в этой области|−1 ore for research in this area",
+  recruitEffect: "Создаёт отряд в этой области|Recruits a unit in this area",
+  barracksEffect:
+    "Позволяют набирать отряды в этой области|Allow recruitment in this area",
+  outpostEffect:
+    "Позволяет присоединить соседнюю нейтральную область и удерживать владение|Claims adjacent neutral land and helps retain holdings",
+  fortificationEffect:
+    "+1 к защите за каждую башню или стену|+1 defense from each tower or wall",
+  logisticsEffect:
+    "+1 дополнительный марш на фракцию за раунд|+1 extra march for the faction each round",
+  trainingEffect:
+    "Новые отряды начинают со 2-го уровня|New units start at level 2",
+  resonanceEffect:
+    "+1 ресурс в двух областях будущего с активным эхом|+1 resource in up to two Future areas with active echo",
+  reservesEffect:
+    "Увеличивает общий лимит отрядов до 9|Raises the army limit to 9",
   guide0:
     "Выберите одну из трёх эпох. Владения различаются, запас ресурсов общий.|Choose an era. Ownership varies, resources are shared.",
   guide1:
     "Выберите соседнюю нейтральную землю и постройте аванпост, чтобы присоединить её.|Select adjacent neutral land and build an outpost to claim it.",
   guide2:
-    "Постройте ферму на своей земле. Прошлое усиливает доход в следующих эпохах, если регион ваш.|Build a farm on your land. Earlier development boosts income in later eras where you own the same region.",
+    "Эхо связывает одну область в разных эпохах. Постройте ферму на полях в прошлом, чтобы открыть оросительный узел и усилить доход в поздней эпохе. Область должна принадлежать вам в обеих эпохах.|Echo links the same area across eras. Build a farm on farmland in the Past to unlock an irrigation hub and increase income in a later era. You must control the area in both eras.",
   guide3:
     "Выберите регион с отрядом и откройте «Войска». Перед атакой сравните прогноз боя.|Select a region with troops and open Troops. Check the forecast before attacking.",
   guide4:
-    "За раунд доступно три действия. Завершите ход для получения дохода. Победите по очкам или захватите 38 владений.|Spend up to three actions each round. End the turn to receive income. Win on points or control 38 holdings.",
+    "За раунд доступно три действия. Завершите ход для получения дохода. Победите по очкам или захватите {target} владений.|Spend up to three actions each round. End the turn to receive income. Win on points or control {target} holdings.",
 };
-const names = [
-  "Златоград|Aurelia",
-  "Ясенев бор|Ashwood",
-  "Солнечная нива|Sunfield",
-  "Тихая гавань|Stillhaven",
-  "Медная гряда|Copper Ridge",
-  "Алый бастион|Red Bastion",
-  "Луговая межа|Meadow March",
-  "Янтарный брод|Amber Ford",
-  "Три ключа|Three Springs",
-  "Серый перевал|Grey Pass",
-  "Тёмная роща|Dark Grove",
-  "Ветреный дол|Windvale",
-  "Белая пристань|Whitehaven",
-  "Серебряная жила|Silver Seam",
-  "Аметист|Amethyst",
-  "Золотые поля|Golden Fields",
-  "Старый архив|Old Archive",
-  "Южный край|South Reach",
-];
 export const translate = (lang: Lang, key: string) =>
   (dictionary[key] ?? key).split("|")[lang === "ru" ? 0 : 1] ?? key;
 export const place = (lang: Lang, i: number) =>
-  names[i].split("|")[lang === "ru" ? 0 : 1];
+  regions[i].name.split("|")[lang === "ru" ? 0 : 1];
