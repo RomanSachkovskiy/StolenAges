@@ -65,8 +65,11 @@ jobs:
       - run: node qa/published.mjs
         env:
           PAGES_URL: ${{ needs.deploy.outputs.url }}
-      - name: Publish verified release
-        if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Release Stolen Ages v')
+      - name: Publish or document verified release
+        if: >-
+          github.event_name == 'push' &&
+          (startsWith(github.event.head_commit.message, 'Release Stolen Ages v') ||
+          startsWith(github.event.head_commit.message, 'Document Stolen Ages v'))
         env:
           GH_TOKEN: ${{ github.token }}
           PAGES_URL: ${{ needs.deploy.outputs.url }}
@@ -76,7 +79,23 @@ jobs:
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           tag="v$version"
           title="Stolen Ages $tag"
-          test "$(git log -1 --format=%s)" = "Release $title"
+          subject="$(git log -1 --format=%s)"
+          notes_source="docs/releases/$tag.md"
+          notes="$(mktemp)"
+          trap 'rm -f "$notes"' EXIT
+          if [[ -f "$notes_source" ]]; then
+            cat "$notes_source" > "$notes"
+          fi
+          printf '\n[Играть на GitHub Pages](%s)\n' "$PAGES_URL" >> "$notes"
+
+          if [[ "$subject" == "Document $title" ]]; then
+            test -s "$notes_source"
+            git merge-base --is-ancestor "refs/tags/$tag" "$GITHUB_SHA"
+            test "$(gh release view "$tag" --json isDraft --jq .isDraft)" = false
+            gh release edit "$tag" --notes-file "$notes"
+            exit 0
+          fi
+          test "$subject" = "Release $title"
 
           shopt -s nullglob
           screenshots=(docs/screenshots/release/*.png)
@@ -94,6 +113,6 @@ jobs:
             gh release upload "$tag" "${screenshots[@]}" --clobber
           else
             gh release create "$tag" "${screenshots[@]}" --verify-tag --title "$title" \
-              --generate-notes --notes "[Играть на GitHub Pages]($PAGES_URL)"
+              --generate-notes --notes-file "$notes"
           fi
           gh release view "$tag" --json url --jq .url
