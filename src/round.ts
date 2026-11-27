@@ -15,9 +15,9 @@ import { candidates, echo, economy, invalid, product } from "./rules";
 import { execute, hostile, powers } from "./combat";
 function utility(s: State, a: Action) {
   const f = s.active,
-    k = a.kind,
+    k = a.kind === "upgrade" ? a.building! : a.kind,
     r = s.layers[a.e][a.i],
-    aggressive = f !== 2;
+    aggressive = f === 1 || f === 0;
   const threats = (i: number) =>
     neighbors[i].filter((n) => {
       const x = s.layers[a.e][n];
@@ -38,10 +38,16 @@ function utility(s: State, a: Action) {
     return 3 + threats(a.to!) * 3;
   }
   if (k === "city") return aggressive ? 6 : 10;
+  if (a.kind === "upgrade") {
+    if (product[k]) return 5 + (f === 3 ? 3 : 0);
+    if (["tower", "wall", "fortifiedBridge"].includes(k))
+      return 3 + threats(a.i) * (f === 2 ? 3 : 2);
+    return k === "outpost" ? 5 : 4;
+  }
   if (k === "train") return 7 + threats(a.i);
   if (k === "infantry" || k === "ranged")
     return (aggressive ? 6 : 4) + threats(a.i);
-  if (techs.includes(k)) return aggressive ? 4 : 7;
+  if (techs.includes(k)) return f === 3 ? 9 : aggressive ? 4 : 7;
   if (["tower", "wall", "fortifiedBridge"].includes(k))
     return threats(a.i) * 2 + (aggressive ? 1 : 3);
   if (product[k]) return 3 + 8 / (1 + s.factions[f].stock[product[k]] / 5);
@@ -101,9 +107,9 @@ export function score(s: State, f: number) {
 }
 export function endTurn(s: State, record?: RecordOrder) {
   if (s.winner !== null || s.active !== 0) return;
-  for (const f of [1, 2]) {
+  for (let f = 1; f < s.factions.length; f++) {
     s.active = f;
-    s.ap = actionsPerTurn;
+    s.ap = actionsPerTurn(s.opponents);
     ai(s, record);
     if (s.winner !== null) return;
   }
@@ -112,8 +118,8 @@ export function endTurn(s: State, record?: RecordOrder) {
     if (r.army) r.army.moves = 1;
     if (r.siege) r.siege.progress = Math.min(2, r.siege.progress + 1);
   }
-  const ranking = [0, 1, 2]
-    .map((f) => ({ f, ...score(s, f), tie: roll(s) }))
+  const ranking = s.factions
+    .map((_, f) => ({ f, ...score(s, f), tie: roll(s) }))
     .sort(
       (a, b) =>
         b.total - a.total ||
@@ -138,7 +144,7 @@ export function endTurn(s: State, record?: RecordOrder) {
     s.round++;
   }
   s.active = 0;
-  s.ap = actionsPerTurn;
+  s.ap = actionsPerTurn(s.opponents);
 }
 
 export function resolveTurn(s: State) {

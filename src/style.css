@@ -380,3 +380,111 @@ output:not(:empty) {
     padding: 4px 7px;
   }
 }
+
+.setting-field {
+  display: grid;
+  gap: 4px;
+  margin: 9px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.setting-field select,
+.playback-controls select {
+  min-height: 44px;
+  padding: 5px 9px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font: inherit;
+  color: inherit;
+  background: var(--paper);
+}
+
+.playback-controls {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.playback-controls select,
+#app[data-screen="replay"] footer select {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.building-manager {
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: #756b4730;
+  border-radius: 5px;
+}
+
+.structure-row {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid #756b4760;
+  margin-top: 6px;
+  padding-top: 7px;
+}
+
+.structure-controls,
+.library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.structure-controls button {
+  padding: 3px 9px;
+  font-size: 14px;
+}
+
+.library-box {
+  width: min(550px, 100%);
+}
+
+.library-note {
+  color: #5e5748;
+}
+
+.library-entry {
+  padding: 10px 0;
+  border-top: 1px solid #756b4760;
+}
+
+#app[data-screen="replay"] header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+}
+
+#app[data-screen="replay"] footer {
+  flex-wrap: wrap;
+}
+
+#app[data-screen="replay"] footer button {
+  min-width: 44px;
+}
+
+#app[data-screen="replay"] footer .setting-field {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0 3px;
+}
+
+.replay-status {
+  flex: 1 0 220px;
+}
+
+@media (max-width: 700px) {
+  #ai-playback {
+    top: 70px;
+    align-items: flex-start;
+  }
+
+  #app[data-screen="replay"] footer {
+    justify-content: flex-start;
+  }
+}

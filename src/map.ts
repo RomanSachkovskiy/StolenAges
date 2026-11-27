@@ -41,9 +41,36 @@ const river: Point[] = [
   [1548, 506],
   [1666, 480],
 ];
-const markers = ["◆", "▲", "●", "◇"];
+const markers = ["◆", "▲", "●", "■", "◇"];
+const neutral = markers.length - 1;
+const buildingOffsets: Point[] = [
+  [-85, -22],
+  [84, -22],
+  [-77, 54],
+  [0, 73],
+  [77, 54],
+];
 
-export const orderDuration = 550;
+function buildingAnchors({
+  center: [x, y],
+  boundary,
+}: (typeof regions)[number]) {
+  return buildingOffsets.map(([dx, dy]): Point => {
+    for (const scale of [1, 0.85, 0.7]) {
+      const px = x + dx * scale,
+        py = y + dy * scale;
+      if (
+        contains(boundary, px - 21, py) &&
+        contains(boundary, px + 21, py) &&
+        contains(boundary, px, py - 35) &&
+        contains(boundary, px, py + 12)
+      )
+        return [px, py];
+    }
+    return [x + dx * 0.58, y + dy * 0.58];
+  });
+}
+const anchors = regions.map(buildingAnchors);
 
 interface MapView {
   scale: (z: number) => void;
@@ -56,7 +83,7 @@ interface MapView {
 export class Atlas extends Phaser.Scene {
   private graph!: Phaser.GameObjects.Graphics;
   private motion!: Phaser.GameObjects.Graphics;
-  private animation?: { entry: Entry; started: number };
+  private animation?: { entry: Entry; started: number; duration: number };
   private reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   private ambient: { x: number; y: number; tint?: number; water?: boolean }[] =
     [];
@@ -173,8 +200,10 @@ export class Atlas extends Phaser.Scene {
     this.zoom(position.zoom / cam.zoom);
     cam.setScroll(position.x, position.y);
   }
-  showOrder(entry?: Entry) {
-    this.animation = entry ? { entry, started: performance.now() } : undefined;
+  showOrder(entry?: Entry, duration = 0) {
+    this.animation = entry
+      ? { entry, started: performance.now(), duration }
+      : undefined;
     this.refresh();
     if (entry) {
       const { i, to } = entry.action;
@@ -235,7 +264,7 @@ export class Atlas extends Phaser.Scene {
         center: [cx, cy],
       } = region;
       const owner = state.layers[era][i].owner;
-      const tint = banners[owner < 0 ? 3 : owner];
+      const tint = banners[owner < 0 ? neutral : owner];
       const ground = terrain === "farmland" ? p.fields : p.land;
       path(g.fillStyle(ground), boundary, true).fillPath();
       if (owner >= 0) path(g.fillStyle(tint, 0.22), boundary, true).fillPath();
@@ -306,10 +335,10 @@ export class Atlas extends Phaser.Scene {
         center: [x, y],
       } = region;
       const area = state.layers[era][i];
-      const owner = area.owner < 0 ? 3 : area.owner;
+      const owner = area.owner < 0 ? neutral : area.owner;
       const tint = banners[owner];
       path(g.lineStyle(2.7, p.forest, 0.72), boundary, true).strokePath();
-      if (owner !== 3)
+      if (owner !== neutral)
         path(g.lineStyle(3.3, tint, 0.72), boundary, true).strokePath();
       if (i === selected)
         path(g.lineStyle(5, 0xfde9ae, 0.9), boundary, true).strokePath();
@@ -349,26 +378,32 @@ export class Atlas extends Phaser.Scene {
           );
       if (area.city) settlement(g, x, y, era, area.city);
       else g.fillStyle(p.forest, 0.62).fillEllipse(x, y + 2, 22, 11);
-      if (owner !== 3)
+      if (owner !== neutral)
         this.ambient.push({ x, y: y - (area.city ? 46 : 16), tint });
 
-      const slots = [...area.build, ...area.pending];
-      for (const [n, kind] of slots.entries()) {
-        const direction = n === 0 ? -1 : 1;
-        const bx = x + direction * (kind === "fortifiedBridge" ? 35 : 75);
-        const by = y + (terrain === "farmland" || rocky ? -28 : 41);
-        const pending = n >= area.build.length;
-        building(
-          g,
-          bx,
-          by,
-          era,
-          kind,
-          pending,
-          !heritage[kind] || heritageEras(state, era, i, kind).length > 0,
-        );
-        if (!pending && ["plant", "mill", "refinery"].includes(kind))
-          this.ambient.push({ x: bx + 12, y: by - 23 });
+      for (const [slot, item] of area.structures.entries()) {
+        const [bx, by] = anchors[i][slot];
+        if (!item) {
+          if (i === selected && area.owner === 0)
+            g.lineStyle(1.5, p.road, 0.65).strokeEllipse(bx, by + 3, 36, 15);
+          continue;
+        }
+        const { kind, pending, level } = item;
+        const active =
+          !heritage[kind] || heritageEras(state, era, i, kind).length > 0;
+        building(g, bx, by, era, kind, pending === "build", active);
+        if (pending !== "build") {
+          for (let mark = 0; mark < level; mark++)
+            g.fillStyle(p.light, active ? 1 : 0.45).fillCircle(
+              bx + 7 * (mark - (level - 1) / 2),
+              by + 10,
+              2,
+            );
+          if (pending === "upgrade")
+            g.lineStyle(1.8, p.light, 0.9).strokeEllipse(bx, by + 4, 64, 29);
+          if (active && ["plant", "mill", "refinery"].includes(kind))
+            this.ambient.push({ x: bx + 12, y: by - 23 });
+        }
       }
 
       const legacy = Object.keys(heritage).some(
@@ -386,6 +421,7 @@ export class Atlas extends Phaser.Scene {
       const action = this.animation?.entry.action;
       const moving =
         !this.reducedMotion.matches &&
+        !!this.animation?.duration &&
         action?.to === i &&
         ["moved", "captured"].includes(this.animation?.entry.outcome ?? "");
       if (area.army && !moving)
@@ -462,17 +498,18 @@ export class Atlas extends Phaser.Scene {
         outcome,
       },
       started,
+      duration,
     } = this.animation;
     const [x, y] = regions[i].center;
     const [tx, ty] = regions[to ?? i].center;
     const tint = banners[f];
-    const progress = Math.min(1, (now - started) / orderDuration);
+    const progress = duration ? Math.min(1, (now - started) / duration) : 1;
     const pulse = reduced ? 0 : Math.sin(progress * Math.PI);
     g.lineStyle(4, tint, 0.95).strokeCircle(tx, ty, 36 + pulse * 14);
     g.lineStyle(2, 0xfff1bf, 0.9).strokeCircle(tx, ty, 29 + pulse * 9);
     if (to === undefined) return;
     g.lineStyle(4, tint, 0.82).lineBetween(x, y, tx, ty);
-    if (reduced) return;
+    if (reduced || !duration) return;
     const arrived = outcome === "captured" || outcome === "moved";
     const fraction = arrived
       ? Math.min(1, progress * 1.3)

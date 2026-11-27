@@ -98,7 +98,10 @@ jobs:
           test "$subject" = "Release $title"
 
           shopt -s nullglob
-          screenshots=(docs/screenshots/release/*.png)
+          screenshots=(docs/screenshots/"$tag"/*.png)
+          if [[ "$tag" == v0.2.0 ]]; then
+            screenshots=(docs/screenshots/release/*.png)
+          fi
           test "${#screenshots[@]}" -gt 0
 
           if git rev-parse -q --verify "refs/tags/$tag"; then

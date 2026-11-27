@@ -1,6 +1,6 @@
 {
   "name": "stolen-ages",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Stolen-Ages — игра для браузера в разработке.",
   "main": "index.js",
   "directories": {
@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "lint": "eslint src tests",
     "test:watch": "vitest",
-    "test:browser": "node qa/browser.mjs"
+    "test:browser": "node qa/browser.mjs && node qa/library.mjs"
   },
   "repository": {
     "type": "git",

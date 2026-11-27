@@ -1,12 +1,20 @@
 import {
-  capitals,
+  factionCapitals,
   goods,
   roll,
   terrain,
   type State,
   type Action,
 } from "./world";
-import { cost, develop, heritageEras, invalid } from "./rules";
+import {
+  actionPoints,
+  buildingLevel,
+  cost,
+  develop,
+  hasHoldings,
+  heritageEras,
+  invalid,
+} from "./rules";
 export function powers(s: State, a: Action) {
   const army = s.layers[a.e][a.i].army!,
     j = a.to!,
@@ -22,6 +30,9 @@ export function powers(s: State, a: Action) {
     (s.factions[army.owner].hungry ? 0.85 : 1);
   const fort = s.factions[f]?.tech.includes("fortification") ? 1 : 0;
   const siege = t.siege?.owner === army.owner && t.siege.progress >= 2;
+  const bridge = buildingLevel(t, "fortifiedBridge");
+  const tower = buildingLevel(t, "tower");
+  const wall = buildingLevel(t, "wall");
   const defense =
     6 +
     2 * ((d?.level ?? 1) - 1) +
@@ -31,13 +42,12 @@ export function powers(s: State, a: Action) {
     (terrain[j] === "pass" ? 1 : 0) +
     2 * t.city +
     (t.city ? 2 : 0) +
-    (t.build.includes("fortifiedBridge") &&
-    heritageEras(s, a.e, j, "fortifiedBridge").length
-      ? 2
+    (bridge && heritageEras(s, a.e, j, "fortifiedBridge").length
+      ? 1 + bridge
       : 0) +
-    (t.build.includes("tower") ? 2 + fort : 0) +
-    (t.build.includes("wall") && !siege ? 4 + fort : 0) +
-    (capitals[f] === j && s.factions[f]?.stand >= s.round ? 3 : 0) -
+    (tower ? 1 + tower + fort : 0) +
+    (wall && !siege ? 3 + wall + fort : 0) +
+    (factionCapitals[f] === j && s.factions[f]?.stand >= s.round ? 3 : 0) -
     (siege && t.city >= 3 ? 4 : 0);
   return { attack, defense };
 }
@@ -68,15 +78,19 @@ function march(s: State, a: Action) {
       return "destroyed";
     }
     if (hit < defense) {
-      if (t.build.includes("wall") || t.city >= 3) {
+      if (buildingLevel(t, "wall") || t.city >= 3) {
         if (t.siege?.owner !== s.active || t.siege.from !== a.i)
           t.siege = { owner: s.active, from: a.i, progress: 1 };
         return "besieged";
       }
       return "retreated";
     }
-    if (t.siege && t.siege.progress >= 2)
-      t.build = t.build.filter((b) => b !== "wall");
+    if (t.siege && t.siege.progress >= 2) {
+      const wall = t.structures.findIndex(
+        (item) => item?.kind === "wall" && item.pending !== "build",
+      );
+      if (wall >= 0) t.structures[wall] = null;
+    }
     t.owner = s.active;
     t.siege = null;
     outcome = "captured";
@@ -93,7 +107,7 @@ export function execute(s: State, a: Action) {
     r = s.layers[a.e][a.i],
     price = cost(s, a);
   for (const g of goods) p.stock[g] -= price[g] ?? 0;
-  s.ap--;
+  s.ap -= actionPoints(a.kind);
   let outcome = "";
   if (a.kind === "march") outcome = march(s, a);
   else if (a.kind === "train") r.army!.level++;
@@ -101,7 +115,12 @@ export function execute(s: State, a: Action) {
     r.army = {
       owner: f,
       kind: a.kind,
-      level: p.tech.includes("training") ? 2 : 1,
+      level: Math.min(
+        4,
+        1 +
+          Number(p.tech.includes("training")) +
+          Math.max(0, buildingLevel(r, "barracks") - 1),
+      ),
       hp: 10,
       moves: 1,
     };
@@ -111,16 +130,7 @@ export function execute(s: State, a: Action) {
       if (t.siege && layer[t.siege.from].army?.owner !== t.siege.owner)
         t.siege = null;
   s.log.push({ round: s.round, f, action: { ...a }, outcome });
-  if (
-    !s.layers.some((layer) =>
-      layer.some(
-        (t, i) =>
-          t.army?.owner === 0 ||
-          (t.owner === 0 &&
-            (capitals.includes(i) || t.build.includes("outpost"))),
-      ),
-    )
-  ) {
+  if (!hasHoldings(s, 0)) {
     s.reason = "eliminated";
     s.winner = s.active || 1;
   }

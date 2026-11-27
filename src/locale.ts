@@ -62,7 +62,7 @@ const dictionary: Record<string, string> = {
   enemy: "Требуется военный захват|Requires military capture",
   ownership: "Нужна своя территория|Requires your territory",
   duplicate: "Уже имеется|Already acquired",
-  slots: "Оба места заняты|Both slots occupied",
+  slots: "Все места заняты|All slots are occupied",
   wrongEra: "Другая эпоха|Wrong era",
   ground: "Неподходящая местность|Unsuitable terrain",
   needBarracks: "Нужны казармы или столица|Requires barracks or a capital",
@@ -162,6 +162,78 @@ const dictionary: Record<string, string> = {
     "+1 ресурс в двух областях будущего с активным эхом|+1 resource in up to two Future areas with active echo",
   reservesEffect:
     "Увеличивает общий лимит отрядов до 9|Raises the army limit to 9",
+  green: "Изумрудная лига|Emerald League",
+  "speed-low": "Низкая|Low",
+  "speed-medium": "Средняя|Medium",
+  "speed-high": "Высокая|High",
+  orderSpeed: "Скорость показа приказов|Order playback speed",
+  opponents: "Соперники|Opponents",
+  apPerFaction: "На ход каждой фракции|Per faction each turn",
+  startMatch: "Начать партию|Start match",
+  developSettlement: "Развить поселение|Develop settlement",
+  noSettlement: "В области нет поселения|This area has no settlement",
+  buildingSlots: "Места под постройки|Building slots",
+  upgrade: "Улучшить|Upgrade",
+  upgradeQueued: "Улучшение до уровня|Upgrade to level",
+  academyUpgrade: "−1 руда за местное исследование|−1 ore per local research",
+  barracksUpgrade: "+1 уровень новым отрядам|+1 level for new units",
+  demolish: "Снести|Demolish",
+  cancelConstruction: "Отменить стройку|Cancel construction",
+  refund: "Возврат|Refund",
+  noRefund: "Ресурсы не возвращаются.|No resources refunded.",
+  workQueued: "Работы ещё не завершены|Work is already queued",
+  missingBuilding: "Постройка уже изменилась|This structure has changed",
+  lastOutpost:
+    "Последний аванпост нельзя снести без столицы или отряда|Keep a capital or a unit to remove your last outpost",
+  confirmation: "Подтверждение|Confirmation",
+  savesEnabled: "Сохранять партии|Enable match saves",
+  autosave: "Автосохранение|Autosave",
+  saveInterval: "Интервал автосохранения|Autosave interval",
+  "interval-10": "10 секунд|10 seconds",
+  "interval-30": "30 секунд|30 seconds",
+  "interval-60": "1 минута|1 minute",
+  yes: "Да|Yes",
+  no: "Нет|No",
+  saveMatch: "Сохранить партию|Save match",
+  savedMatch: "Партия сохранена|Match saved",
+  saveError:
+    "Не удалось сохраниться. Если у партии уже был снимок, он доступен.|Saving failed. If this match already had a save, it is still available.",
+  preferencesError:
+    "Не удалось записать настройки браузера|Could not store browser settings",
+  libraryError:
+    "Не удалось открыть или изменить записи|Could not access the library",
+  matches: "Сохранённые партии|Saved matches",
+  replays: "Архив реплеев|Replay archive",
+  matchesFull:
+    "Все пять мест заняты. Удалите партию, чтобы начать новую.|All five slots are full. Delete a saved match to start another.",
+  replaysFull:
+    "Все пять мест заняты. Удалите реплей, чтобы добавить другой.|All five slots are full. Delete a replay to add another.",
+  match: "Партия|Match",
+  replayItem: "Реплей|Replay",
+  inProgress: "В процессе|In progress",
+  results: "Посмотреть итоги|View results",
+  leaveMatch:
+    "Открыть другую запись? Несохранённый прогресс текущей партии будет потерян.|Open another save? Unsaved progress in the current match will be lost.",
+  delete: "Удалить|Delete",
+  deleteMatchAsk:
+    "Удалить сохранённую партию и её реплей?|Delete this saved match and its replay?",
+  deleteReplayAsk: "Удалить реплей из архива?|Delete this archived replay?",
+  noMatches: "Пока нет сохранённых партий.|No saved matches yet.",
+  noReplays: "Пока нет сохранённых реплеев.|No archived replays yet.",
+  watchReplay: "Посмотреть реплей|Watch replay",
+  importReplay: "Загрузить реплей|Import replay",
+  downloadReplay: "Скачать реплей|Download replay",
+  archiveReplay: "Сохранить в архив|Save to archive",
+  replaySaved: "Реплей добавлен в архив|Replay added to the archive",
+  invalidReplay:
+    "Файл повреждён или формат реплея не поддерживается.|The replay file is invalid or uses an unsupported format.",
+  replaySpeed: "Скорость реплея|Replay speed",
+  roundStart: "Начало раунда|Start of round",
+  replayStart: "Начало партии|Start of match",
+  playReplay: "Воспроизвести|Play",
+  pauseReplay: "Пауза|Pause",
+  previousOrder: "Предыдущий шаг|Previous step",
+  nextOrder: "Следующий шаг|Next step",
   guide0:
     "Выберите одну из трёх эпох. Владения различаются, запас ресурсов общий.|Choose an era. Ownership varies, resources are shared.",
   guide1:
@@ -171,7 +243,7 @@ const dictionary: Record<string, string> = {
   guide3:
     "Выберите регион с отрядом и откройте «Войска». Перед атакой сравните прогноз боя.|Select a region with troops and open Troops. Check the forecast before attacking.",
   guide4:
-    "За раунд доступно три действия. Завершите ход для получения дохода. Победите по очкам или захватите {target} владений.|Spend up to three actions each round. End the turn to receive income. Win on points or control {target} holdings.",
+    "Число очков действия зависит от количества соперников. Завершите ход для получения дохода. Победите по очкам или захватите {target} владений.|Action points depend on the number of opponents. End the turn to receive income. Win on points or control {target} holdings.",
 };
 export const translate = (lang: Lang, key: string) =>
   (dictionary[key] ?? key).split("|")[lang === "ru" ? 0 : 1] ?? key;

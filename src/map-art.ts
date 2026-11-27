@@ -50,7 +50,7 @@ export const palettes = [
     light: 0x8cffee,
   },
 ];
-export const banners = [0xf3cc70, 0xe36d62, 0xce9df3, 0xaab6a4];
+export const banners = [0xf3cc70, 0xe36d62, 0xce9df3, 0x69dfb7, 0xaab6a4];
 const shadow = 0x182c35;
 
 export function noise(seed: number) {

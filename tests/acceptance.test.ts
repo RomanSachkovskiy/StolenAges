@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dominationTarget, newGame } from "../src/world";
+import { actionsPerTurn, dominationTarget, newGame } from "../src/world";
 import { execute } from "../src/combat";
 import { endTurn, resolveTurn, score } from "../src/round";
 
@@ -9,7 +9,16 @@ describe("match rules", () => {
     expect(execute(s, { kind: "outpost", i: 11, e: 2 })).toBe("adjacent");
     expect(execute(s, { kind: "outpost", i: 4, e: 2 })).toBe("");
     expect(s.factions[0].stock).toMatchObject({ wood: 10, food: 10 });
-    expect(s.layers[2][4]).toMatchObject({ owner: 0, build: ["outpost"] });
+    expect(s.layers[2][4]).toMatchObject({
+      owner: 0,
+      structures: [
+        { kind: "outpost", level: 1, pending: null },
+        null,
+        null,
+        null,
+        null,
+      ],
+    });
     expect(s.layers[0][4].owner).toBe(-1);
   });
   it("caps the capital at level four", () => {
@@ -22,21 +31,30 @@ describe("match rules", () => {
     endTurn(s);
     expect(execute(s, { kind: "city", e: 0, i: 0 })).toBe("maximum");
   });
-  it("can play or skip each opponent order without changing the round result", () => {
-    const initial = newGame(42);
-    const direct = structuredClone(initial);
-    const { orders, result } = resolveTurn(initial);
-    endTurn(direct);
-    expect(result).toEqual(direct);
-    expect(initial).toEqual(newGame(42));
-    expect(new Set(orders.map(({ entry }) => entry.f))).toEqual(
-      new Set([1, 2]),
-    );
-    for (const [i, { state }] of orders.entries())
-      expect(state.log).toEqual(
-        orders.slice(0, i + 1).map((order) => order.entry),
+  it.each([1, 2, 3] as const)(
+    "can play or skip each opponent order with %i opponents",
+    (opponents) => {
+      const initial = newGame(42, opponents);
+      const direct = structuredClone(initial);
+      const { orders, result } = resolveTurn(initial);
+      endTurn(direct);
+      expect(result).toEqual(direct);
+      expect(initial).toEqual(newGame(42, opponents));
+      expect(new Set(orders.map(({ entry }) => entry.f))).toEqual(
+        new Set([...initial.factions.keys()].slice(1)),
       );
-  });
+      for (const f of [...initial.factions.keys()].slice(1)) {
+        const sequence = orders.filter(({ entry }) => entry.f === f);
+        expect(sequence.length).toBeLessThanOrEqual(actionsPerTurn(opponents));
+        expect(sequence[0].state.ap).toBe(actionsPerTurn(opponents) - 1);
+      }
+      expect(result.ap).toBe(actionsPerTurn(opponents));
+      for (const [i, { state }] of orders.entries())
+        expect(state.log).toEqual(
+          orders.slice(0, i + 1).map((order) => order.entry),
+        );
+    },
+  );
   it("recruits, marches, upgrades and restricts movement by era", () => {
     const s = newGame(2);
     expect(execute(s, { kind: "ranged", i: 0, e: 2 })).toBe("");

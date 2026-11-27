@@ -14,6 +14,9 @@ try {
     await page
       .getByRole("button", { name: "Новая партия", exact: true })
       .click({ timeout: 3000 });
+    await page
+      .getByRole("button", { name: "Начать партию", exact: true })
+      .click();
     await page.getByRole("button", { name: "Пропустить", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Завершить ход", exact: true }),
